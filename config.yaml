@@ -1,0 +1,37 @@
+team:
+   name: <nombre del equipo>
+   members:
+      - user: <usuario uniandes>
+        percentage: <0 a 100>
+      - user: <usuario uniandes>
+        percentage: <0 a 100>
+      - user: <usuario uniandes>
+        percentage: <0 a 100>
+      - user: <usuario uniandes>
+        percentage: <0 a 100>
+board: <link al dashboard de tareas del equipo>
+docs: <link al github pages del equipo>
+users_app:
+  folder: <nombre de la carpeta donde está la aplicación de usuarios>
+  image_name: <nombre de la imagen de la aplicación de usuarios, mismo que el nombre en el archivo de despliegue de k8s>
+  image_tag: <tag de la imagen de la aplicación de usuarios, por ejemplo: latest, v1.0.0. Debe ser el mismo que el tag en el archivo de despliegue de k8s>
+  authors:
+    - <usuario uniandes>
+posts_app:
+  folder: <nombre de la carpeta donde está la aplicación de publicaciones>
+  image_name: <nombre de la imagen de la aplicación de publicaciones, mismo que el nombre en el archivo de despliegue de k8s>
+  image_tag: <tag de la imagen de la aplicación de publicaciones, por ejemplo: latest, v1.0.0. Debe ser el mismo que el tag en el archivo de despliegue de k8s>
+  authors:
+    - <usuario uniandes>
+offers_app:
+  folder: <nombre de la carpeta donde está la aplicación de ofertas>
+  image_name: <nombre de la imagen de la aplicación de ofertas, mismo que el nombre en el archivo de despliegue de k8s>
+  image_tag: <tag de la imagen de la aplicación de ofertas, por ejemplo: latest, v1.0.0. Debe ser el mismo que el tag en el archivo de despliegue de k8s>
+  authors:
+    - <usuario uniandes>
+routes_app:
+  folder: <nombre de la carpeta donde está la aplicación de trayectos>
+  image_name: <nombre de la imagen de la aplicación de trayectos, mismo que el nombre en el archivo de despliegue de k8s>
+  image_tag: <tag de la imagen de la aplicación de trayectos, por ejemplo: latest, v1.0.0. Debe ser el mismo que el tag en el archivo de despliegue de k8s>
+  authors:
+    - <usuario uniandes>

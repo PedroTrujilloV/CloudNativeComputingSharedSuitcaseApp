@@ -1,0 +1,29 @@
+name: Evaluador Pruebas Unitarias
+# Actualice este pipeline si usted decide trabajar en una tecnología diferente a Python.
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+jobs:
+  pets_app:
+    runs-on: ubuntu-latest
+    name: Verify pets_app
+    strategy:
+      fail-fast: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.11
+      - name: Set up Poetry
+        uses: abatilo/actions-poetry@v3
+        with:
+          poetry-version: 2.1.1
+      - name: Run linter checkers in pets_app
+        run: make lintcheck DIR=pets_app
+      - name: Run unit tests
+        run: make unittest DIR=pets_app

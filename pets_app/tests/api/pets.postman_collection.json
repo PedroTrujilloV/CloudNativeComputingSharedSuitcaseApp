@@ -1,0 +1,374 @@
+{
+	"info": {
+		"_postman_id": "83ec115d-1173-4cfa-8053-5aa0d72460c0",
+		"name": "[MISO] Pets",
+		"description": "Collection to verify all the endpoints in the example project Pets are working as expected.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "213032"
+	},
+	"item": [
+		{
+			"name": "ping",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 and body is pong\", function () {",
+							"    pm.response.to.have.status(200);",
+							"    let body = pm.response.text()",
+							"    pm.expect(body).to.eq(\"pong\")",
+							"});"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/pets/ping",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"pets",
+						"ping"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "All pets, empty",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 and body is empty\", function () {",
+							"    pm.response.to.have.status(200);",
+							"    let body = pm.response.json()",
+							"    pm.expect(body.length).to.eq(0)",
+							"});"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/pets",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"pets"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Create pet",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 and pet was created\", function () {",
+							"    pm.response.to.have.status(200);",
+							"    let body = pm.response.json()",
+							"    pm.expect(body[\"name\"]).to.eq(\"Kripto\")",
+							"    pm.expect(body[\"type\"]).to.eq(\"dog\")",
+							"    pm.expect(body[\"age\"]).to.eq(12)",
+							"    pm.expect(body[\"owner_name\"]).to.eq(\"Clark\")",
+							"});",
+							"",
+							"pm.collectionVariables.set(\"pet_id\", pm.response.json()[\"id\"]);"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"name\": \"Kripto\",\n    \"type\": \"dog\",\n    \"age\": 12,\n    \"owner_name\": \"Clark\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/pets",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"pets"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get pet",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 and pet was retrieved successfully\", function () {",
+							"    pm.response.to.have.status(200);",
+							"    let body = pm.response.json()",
+							"    pm.expect(body[\"name\"]).to.eq(\"Kripto\")",
+							"    pm.expect(body[\"type\"]).to.eq(\"dog\")",
+							"    pm.expect(body[\"age\"]).to.eq(12)",
+							"    pm.expect(body[\"owner_name\"]).to.eq(\"Clark\")",
+							"    pm.expect(body[\"id\"]).to.eq(pm.collectionVariables.get(\"pet_id\"))",
+							"});",
+							""
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/pets/{{pet_id}}",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"pets",
+						"{{pet_id}}"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "All pets",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 and body is empty\", function () {",
+							"    pm.response.to.have.status(200);",
+							"    let body = pm.response.json()",
+							"    pm.expect(body.length).to.eq(1)",
+							"});"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/pets",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"pets"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Update pet",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 and pet was updated\", function () {",
+							"    pm.response.to.have.status(200);",
+							"    let body = pm.response.json()",
+							"    pm.expect(body[\"name\"]).to.eq(\"Kripto\")",
+							"    pm.expect(body[\"type\"]).to.eq(\"dog\")",
+							"    pm.expect(body[\"age\"]).to.eq(12)",
+							"    pm.expect(body[\"owner_name\"]).to.eq(\"Superman\")",
+							"});"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "PUT",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"name\": \"Kripto\",\n    \"type\": \"dog\",\n    \"age\": 12,\n    \"owner_name\": \"Superman\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/pets/{{pet_id}}",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"pets",
+						"{{pet_id}}"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Delete pet",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 and pet was delete successfully\", function () {",
+							"    pm.response.to.have.status(200);",
+							"    let body = pm.response.json()",
+							"    pm.expect(body[\"name\"]).to.eq(\"Kripto\")",
+							"    pm.expect(body[\"type\"]).to.eq(\"dog\")",
+							"    pm.expect(body[\"age\"]).to.eq(12)",
+							"    pm.expect(body[\"owner_name\"]).to.eq(\"Superman\")",
+							"    pm.expect(body[\"id\"]).to.eq(pm.collectionVariables.get(\"pet_id\"))",
+							"});",
+							""
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "DELETE",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/pets/{{pet_id}}",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"pets",
+						"{{pet_id}}"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get deleted pet",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 404\", function () {",
+							"    pm.response.to.have.status(404);",
+							"    let body = pm.response.json()",
+							"    pm.expect(body[\"detail\"]).to.eq(\"Pet not found\")",
+							"});",
+							""
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/pets/{{pet_id}}",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"pets",
+						"{{pet_id}}"
+					]
+				}
+			},
+			"response": []
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"packages": {},
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"packages": {},
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "pet_id",
+			"value": ""
+		},
+		{
+			"key": "baseUrl",
+			"value": "http://0.0.0.0:9000",
+			"type": "string"
+		}
+	]
+}

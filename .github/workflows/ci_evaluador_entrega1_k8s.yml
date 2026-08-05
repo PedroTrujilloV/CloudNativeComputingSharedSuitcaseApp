@@ -1,0 +1,5 @@
+name: Evaluador Implementación Entrega 1
+on: workflow_dispatch
+jobs:
+  evaluador:
+    uses: MISW-4301-Desarrollo-Apps-en-la-Nube/recursos-evaluador/.github/workflows/ci_evaluador_entrega1_k8s.yml@main

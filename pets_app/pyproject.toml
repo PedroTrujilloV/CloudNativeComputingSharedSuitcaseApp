@@ -1,0 +1,76 @@
+[tool.poetry]
+name = "pets_app"
+version = "1.0.0"
+description = "Proyecto guía para talleres y ejemplos."
+authors = [
+  "César Forero <ca.forero10@uniandes.edu.co>"
+]
+license = "MIT"
+readme = "README.md"
+package-mode = false
+packages = [{include = "*", from = "src"}]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.dependencies]
+python = "~3.11"
+fastapi = "~0.115.12"
+uvicorn = "~0.27.1"
+python-dotenv = "~1.0.1"
+pydantic = "~2.6.1"
+pydantic-settings = "~2.1.0 "
+
+[tool.poetry.group.dev.dependencies]
+black = "~25.1.0"
+ruff = "~0.11.12"
+bandit = "~1.8.3"
+flake8 = "~7.2.0"
+isort = "~6.0.1"
+pytest = "~8.4.0"
+pytest-cov = "~6.1.1"
+pytest-mock = "~3.14.1"
+pytest-env = "~1.1.5"
+faker = "~37.3.0"
+
+[tool.isort]
+# https://pycqa.github.io/isort/docs/configuration/black_compatibility/
+profile = "black"
+multi_line_output = 3
+
+[tool.bandit]
+# See https://bandit.readthedocs.io/en/latest/config.html for reference
+exclude_dirs = ["./tests"]
+skips = ["B101"]
+
+[tool.pydoclint]
+# See https://jsh9.github.io/pydoclint/how_to_config.html#2-specifying-options-in-a-configuration-file for config reference.
+style = "google"
+arg-type-hints-in-docstring = true
+check-return-types = false
+check-yield-types = false
+
+[tool.ruff]
+# Directories to consider “first party” imports
+src = ["src"]
+fix = true
+
+[tool.ruff.lint.pydocstyle]
+# See https://docs.astral.sh/ruff/settings/#pydocstyle for reference.
+convention = "google"
+
+[tool.ruff.lint.mccabe]
+# See https://docs.astral.sh/ruff/settings/#mccabe for reference.
+max-complexity = 20
+
+[tool.pytest.ini_options]
+# https://docs.pytest.org/en/7.2.x/reference/customize.html for reference
+python_files = "test_*.py"
+pythonpath = "src"
+testpaths = [
+  "tests"
+]
+env = [ # environment variables for testing
+  "LOG_LEVEL = INFO"
+]
