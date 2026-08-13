@@ -1,0 +1,25 @@
+name: Entrega 2 - Deploy
+
+# Este pipeline depende de la configuración en el archivo config.yaml
+# Se debe configurar las llavestf_stacks / k8s_manifests.
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Ambiente de terraform/environments a desplegar'
+        required: true
+        default: 'student1'
+        type: choice
+        options:
+          - student1
+          - student2
+          - student3
+          - student4
+          - tutor
+
+jobs:
+  deploy:
+    uses: MISW-4301-Desarrollo-Apps-en-la-Nube/recursos-evaluador/.github/workflows/ci_entrega2_deploy.yml@main
+    with:
+      environment: ${{ inputs.environment }}
+    secrets: inherit

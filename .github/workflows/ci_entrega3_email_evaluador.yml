@@ -1,4 +1,4 @@
-name: Evaluador Implementación Entrega 3
+name: Entrega 3 - Evaluador Implementación con Email
 on:
   workflow_dispatch:
     inputs:
@@ -12,9 +12,13 @@ on:
           - student3
           - student4
           - tutor
+      email:
+        description: 'Email'
+        required: true
 jobs:
   evaluador:
-    uses: MISW-4301-Desarrollo-Apps-en-la-Nube/recursos-evaluador/.github/workflows/ci_evaluador_entrega3.yml@main
+    uses: MISW-4301-Desarrollo-Apps-en-la-Nube/recursos-evaluador/.github/workflows/ci_evaluador_entrega3_email.yml@main
     with:
+      email: ${{ inputs.email }}
       environment: ${{ inputs.environment }}
     secrets: inherit

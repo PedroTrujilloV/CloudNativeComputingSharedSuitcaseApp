@@ -1,4 +1,4 @@
-name: Evaluador Implementación Entrega 1
+name: Entrega 1 - Evaluador Implementación
 on: workflow_dispatch
 jobs:
   evaluador:

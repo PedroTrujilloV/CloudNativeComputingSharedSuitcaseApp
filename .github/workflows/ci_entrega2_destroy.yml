@@ -1,0 +1,30 @@
+name: Entrega 2 - Destroy
+
+# Solo se dispara manualmente: es una acción destructiva e irreversible.
+#
+# El trabajo real vive en el pipeline reutilizable de recursos-evaluador;
+# este workflow solo pasa el ambiente elegido y los secrets. Qué stacks de
+# terraform y qué manifiestos de k8s se destruyen se configura en
+# config.yaml (tf_stacks / k8s_manifests), no acá — se destruyen en el
+# orden inverso al que declara ci_entrega2_deploy.yml.
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Ambiente de terraform/environments a destruir'
+        required: true
+        default: 'student1'
+        type: choice
+        options:
+          - student1
+          - student2
+          - student3
+          - student4
+          - tutor
+
+jobs:
+  destroy:
+    uses: MISW-4301-Desarrollo-Apps-en-la-Nube/recursos-evaluador/.github/workflows/ci_entrega2_destroy.yml@main
+    with:
+      environment: ${{ inputs.environment }}
+    secrets: inherit

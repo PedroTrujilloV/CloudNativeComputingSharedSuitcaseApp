@@ -1,0 +1,20 @@
+name: Entrega 3 - Evaluador Implementación
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        required: true
+        description: 'Select the target environment'
+        options:
+          - student1
+          - student2
+          - student3
+          - student4
+          - tutor
+jobs:
+  evaluador:
+    uses: MISW-4301-Desarrollo-Apps-en-la-Nube/recursos-evaluador/.github/workflows/ci_evaluador_entrega3.yml@main
+    with:
+      environment: ${{ inputs.environment }}
+    secrets: inherit
