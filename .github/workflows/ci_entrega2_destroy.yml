@@ -1,12 +1,7 @@
 name: Entrega 2 - Destroy
 
 # Solo se dispara manualmente: es una acción destructiva e irreversible.
-#
-# El trabajo real vive en el pipeline reutilizable de recursos-evaluador;
-# este workflow solo pasa el ambiente elegido y los secrets. Qué stacks de
-# terraform y qué manifiestos de k8s se destruyen se configura en
-# config.yaml (tf_stacks / k8s_manifests), no acá — se destruyen en el
-# orden inverso al que declara ci_entrega2_deploy.yml.
+# Destruye stacks en el orden inverso al que declara en el config.yaml.
 on:
   workflow_dispatch:
     inputs:

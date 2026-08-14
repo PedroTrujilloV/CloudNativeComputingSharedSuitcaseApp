@@ -1,7 +1,7 @@
 name: Entrega 2 - Deploy
 
 # Este pipeline depende de la configuración en el archivo config.yaml
-# Se debe configurar las llavestf_stacks / k8s_manifests.
+# Se debe configurar las llaves: apps, tf_stacks y k8s_manifests.
 on:
   workflow_dispatch:
     inputs:
