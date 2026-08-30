@@ -1,37 +1,81 @@
-team:
-   name: 202614-grupo18-proyecto
-   members:
-      - user: a.serranor@uniandes.edu.co
-        percentage: 25
-      - user: ca.dazab1@uniandes.edu.co
-        percentage: 25
-      - user: j.roncancioc@uniandes.edu.co
-        percentage: 25
-      - user: pe.trujillo@uniandes.edu.co
-        percentage: 25
-board: "https://github.com/orgs/MISW-4301-Desarrollo-Apps-en-la-Nube/projects/330/views/2"
-docs: "https://ubiquitous-journey-4zq6j6o.pages.github.io/"
-users_app:
-  folder: users_app
-  image_name: users_app
-  image_tag: v0.0.0
-  authors:
-    - a.serranor@uniandes.edu.co
-posts_app:
-  folder: posts_app
-  image_name: posts_app
-  image_tag: v0.0.0
-  authors:
-    - j.roncancioc@uniandes.edu.co
-offers_app:
-  folder: offers_app
-  image_name: offers_app
-  image_tag: v0.0.0
-  authors:
-    - ca.dazab1@uniandes.edu.co
-routes_app:
-  folder: routes_app
-  image_name: routes_app
-  image_tag: v0.0.0
-  authors:
-    - pe.trujillo@uniandes.edu.co
+  team:
+    name: 202614-grupo33-proyecto
+    members:
+        - user: pe.trujillo@uniandes.edu.co
+          percentage: 100
+  board: "https://github.com/orgs/MISW-4301-Desarrollo-Apps-en-la-Nube/projects/370/views/1"
+  docs: "https://fluffy-disco-nyww85v.pages.github.io/"
+  # Nombres de los stacks de terraform que se despliegan y
+  # destruyen en el orden en que están descritos en esta lista. Por cada
+  # nombre debe existir tanto terraform/stacks/<nombre>/ como
+  # terraform/environments/<ambiente>/<nombre>/ (con backend.tfvars y
+  # terraform.tfvars). Ambas carpetas, terraform/stacks/ y
+  # terraform/environments/, son obligatorias con esos nombres exactos.
+  tf_stacks:
+    # Debe existir como terraform/stacks/apps/ y terraform/environments/<ambiente>/apps/
+    # (con backend.tfvars y terraform.tfvars). Si se añaden más stacks, listarlos
+    # aquí en el orden de despliegue (la destrucción se aplica en orden inverso).
+    # - 
+    - apps
+  # Ambiente student1 cuyos backend.tfvars/terraform.tfvars
+  # se usan como base para el ambiente `tutor`.
+  default_env: student1
+  # Carpetas con manifiestos de k8s (*.yml/*.yaml) que aplican esos mismos
+  # pipelines, también en el orden en que deben aplicarse.
+  k8s_manifests:
+    - k8s
+  # Imágenes que construye y sube a ECR el pipeline ci_entrega2_deploy.yml
+  # antes de aplicar k8s_manifests. Una entrada por cada aplicación desplegada.
+  apps:
+    - users_app:
+        folder: users_app
+        image_name: users-app
+        image_tag: v0.0.0
+        authors:
+          - pe.trujillo@uniandes.edu.co
+    - posts_app:
+        folder: posts_app
+        image_name: posts-app
+        image_tag: v0.0.0
+        authors:
+          - pe.trujillo@uniandes.edu.co
+    - offers_app:
+        folder: offers_app
+        image_name: offers-app
+        image_tag: v0.0.0
+        authors:
+          - pe.trujillo@uniandes.edu.co
+    - routes_app:
+        folder: routes_app
+        image_name: routes-app
+        image_tag: v0.0.0
+        authors:
+          - pe.trujillo@uniandes.edu.co
+    - scores_app:
+        folder: scores_app
+        image_name: scores-app
+        image_tag: v0.0.0
+        authors:
+          - pe.trujillo@uniandes.edu.co
+    # Componentes de orquestación: una entrada por cada requirement +
+    # caso de uso que orquesta las apps anteriores (naming: <rf-xxx>_<use_case>_app).
+    # Los nombres de carpeta/imagen son provisionales hasta que Epic G estabilice
+    # el folder real y el build de la imagen (Dockerfile + manifiesto de k8s).
+    - rf003_create_post_app:
+        folder: rf003_create_post_app
+        image_name: rf003-create-post-app
+        image_tag: v0.0.0
+        authors:
+          - pe.trujillo@uniandes.edu.co
+    - rf004_create_offer_app:
+        folder: rf004_create_offer_app
+        image_name: rf004-create-offer-app
+        image_tag: v0.0.0
+        authors:
+          - pe.trujillo@uniandes.edu.co
+    - rf005_query_post_app:
+        folder: rf005_query_post_app
+        image_name: rf005-query-post-app
+        image_tag: v0.0.0
+        authors:
+          - pe.trujillo@uniandes.edu.co
