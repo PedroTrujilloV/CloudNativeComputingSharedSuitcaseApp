@@ -1,0 +1,159 @@
+# Kubernetes deployment for users_app
+# Minikube: app + PostgreSQL (ephemeral emptyDir)
+# Namespace: default
+#
+# Usage (from repository root):
+#   kubectl apply -f k8s/users-app.yaml
+#   minikube service users-app-service --url
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: users-app
+  labels:
+    app: users-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: users-app
+  template:
+    metadata:
+      labels:
+        app: users-app
+    spec:
+      containers:
+        - name: users-app
+          image: users_app:v0.0.0
+          ports:
+            - containerPort: 8000
+          env:
+            - name: APP_NAME
+              value: "users_app"
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: DB_DRIVER
+              value: "postgresql"
+            - name: DB_HOST
+              value: "users-db-service"
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_NAME
+              value: "users_db"
+            - name: DB_USER
+              value: "users_user"
+            - name: DB_PASSWORD
+              value: "users_pass"
+          livenessProbe:
+            httpGet:
+              path: /users/ping
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /users/ping
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: users-app-service
+  labels:
+    app: users-app
+spec:
+  type: NodePort
+  selector:
+    app: users-app
+  ports:
+    - port: 8000
+      targetPort: 8000
+      nodePort: 30000
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: users-db
+  labels:
+    app: users-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: users-db
+  template:
+    metadata:
+      labels:
+        app: users-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: "users_db"
+            - name: POSTGRES_USER
+              value: "users_user"
+            - name: POSTGRES_PASSWORD
+              value: "users_pass"
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - users_user
+                - -d
+                - users_db
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - users_user
+                - -d
+                - users_db
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: users-db-storage
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: users-db-storage
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: users-db-service
+  labels:
+    app: users-db
+spec:
+  type: ClusterIP
+  selector:
+    app: users-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP

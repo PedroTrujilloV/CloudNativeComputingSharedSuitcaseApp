@@ -1,48 +1,267 @@
-# proyecto-base  
 
-## Tabla de contenido
 
-- [proyecto-base](#proyecto-base)
-  - [Tabla de contenido](#tabla-de-contenido)
-  - [Estructura del Proyecto](#estructura-del-proyecto)
-  - [Archivo de configuración](#archivo-de-configuración)
-  - [Estructura de cada aplicación](#estructura-de-cada-aplicación)
+## Project Structure
 
-## Estructura del Proyecto
-
-```
+```text
 .
-├── github/
-│   └── workflows/          # Pipelines del repositorio
-├── k8s/                    # Archivos para despliegue en k8s
-├── docs/                   # Archivos de documentación técnica
-├── <aplicación>            # Archivos de aplicación. Una carpeta por cada una.
-├── vale.ini                # Configuración para Vale. NO MODIFICAR
-├── config.yaml             # Configuración del repositorio. Modifíquelo como primera tarea
-├── Makefile                # Scripts para evaluación. NO MODIFICAR las reglas actuales
-└── README.md               # Este archivo
+├── users_app/          # User management application
+├── routes_app/         # Route management application
+├── posts_app/          # Post management application
+├── offers_app/         # Offer management application
+├── k8s/                # Kubernetes deployment manifests
+├── docs/               # Technical documentation as code
+│   └── diagrams/       # PlantUML diagrams (entities, components, deployment, networks)
+├── config.yaml         # Team and application configuration
+└── README.md           # This file
 ```
 
-1. **github/workflows**: los archivos en esta carpeta no se pueden modificar a excepción del archivo `ci_evaluador_unit.yml` el cuál debe ser utilizado para agregar un job por cada aplicación.
-   * `ci_evaluador_entrega1_k8s.yml` verifica configuración de k8s y ejecuta pruebas sobre cada aplicación. Su modificación anula su entrega.
-   * `ci_evaluador_entrega1_docs.yml` verifica que los diagramas de la documentación contengan los componentes esperados, hace una revisión gramática sobre el contenido del markdown. Su modificación anula su entrega.
-   * `ci_evaluador_unit.yml` ejecuta pruebas unitarias. Modifique este archivo agregando un job por aplicación.
-2. **k8s**: Archivos de configuración y despliegue de sus aplicaciones. Puede crear un archivo por aplicación o todos en un mismo archivo. La decisión de la estructura es suya.
-3. **docs**: Archivos de la documentación técnica. Debe existir un archivo `README.md` para que se genere la página de la documentación en `github pages` y la carpeta `diagrams` con los archivos `puml` en esta. La estructura de la documentación es decisión del equipo.
-4. **<aplicación>**: Una carpeta por cada aplicación. A continuación se habla en más detalle de su estructura.
-5. **makefile**: El archivo `makefile` es utilizado por los pipelines evaluadores, **NO** modifique los scripts que encontrará allí, pero si puede agregar nuevos si así lo requiere.
+More detailed information in the [Development View](./docs/development-view.md)
+and [Technical Documentation](./docs/README.md)
 
-## Archivo de configuración
 
-El archivo `config.yaml` es el archivo más importante en el repositorio. Este archivo contiene la configuración que se usa en los pipelines para evaluar su entrega y se define la calificación de cada miembro del equipo. Si este archivo no está correctamente configurado, su entrega no puede ser calificada y será de cero.
+# Deployment Guide - Delivery 1
 
-## Estructura de cada aplicación
+This guide describes, step by step, how to fully deploy the project: the four applications (users, posts, routes, offers), their databases, the generation of the technical documentation (PlantUML diagrams), and the final validation on Minikube.
 
-Cada aplicación debe seguir las siguientes reglas:
+## Table of Contents
 
-1. Cada aplicación debe estar en una carpeta independente y construida en el lenguaje de su preferencia. En este repositorio encontrará cómo ejemplo la aplicación `pets_app` construida en `Python`, `Poetry`, `FastAPI` y `Pytest`.
-2. Dentro de cada carpeta de aplicación debe estar el archivo `Dockerfile` que permite la ejecución de la aplicación. Este archivo debe estar en la raiz de la carpeta y no en otras ubicaciones.
-3. El nombre de la carpeta es decisión libre del equipo pero debe estar registrado en el archivo `config.yaml` o de lo contrario no podrá ser evaluado.
-4. El nombre y tag de cada imagen deben ser agregadas en el archivo `config.yaml` y deben corresponder a los mismos que se usan en la configuración de despliegue de k8s. Si la configuración de este archivo no es correcta, su evaluación fallará y la nota será de cero.
+- [Deployment Guide - Delivery 1](#deployment-guide---delivery-1)
+  - [Table of Contents](#table-of-contents)
+  - [Prerequisites](#prerequisites)
+  - [Step 1: Clone the Repository](#step-1-clone-the-repository)
+  - [Step 2: Verify config.yaml](#step-2-verify-configyaml)
+  - [Step 3: Generate Technical Documentation (PlantUML)](#step-3-generate-technical-documentation-plantuml)
+  - [Step 4: Run Each Application Locally (Optional, for Development)](#step-4-run-each-application-locally-optional-for-development)
+  - [Step 5: Build the Docker Images](#step-5-build-the-docker-images)
+  - [Step 6: Start Minikube](#step-6-start-minikube)
+  - [Step 7: Load the Images into Minikube](#step-7-load-the-images-into-minikube)
+  - [Step 8: Deploy the Kubernetes Manifests](#step-8-deploy-the-kubernetes-manifests)
+  - [Step 9: Verify the Deployment](#step-9-verify-the-deployment)
+  - [Step 10: Obtain the URLs for Each Application](#step-10-obtain-the-urls-for-each-application)
+  - [Step 11: Test the API with Postman](#step-11-test-the-api-with-postman)
+  - [Step 12: Verify Network Isolation](#step-12-verify-network-isolation)
+  - [Step 13: Run the Validation Pipelines](#step-13-run-the-validation-pipelines)
+  - [Step 14: Cleanup (Optional)](#step-14-cleanup-optional)
+  - [Troubleshooting Common Issues](#troubleshooting-common-issues)
 
-Lo invitamos a revisar el archivo `README.md` de la carpeta [pets](./pets_app/) donde encontrará la documentación para utilizar ese proyecto en `Python` como su ejemplo.
+## Prerequisites
+
+Before starting, make sure you have installed:
+
+* [ ] Docker
+* [ ] Minikube
+* [ ] kubectl
+* [ ] Postman
+* [ ] Git
+* [ ] Python 3.11 + Poetry (or another stack, depending on the language selected by the team)
+
+Verify the installed versions:
+
+```bash
+docker --version
+minikube version
+kubectl version --client
+git --version
+```
+
+## Step 1: Clone the Repository
+
+```bash
+git clone <team-repository-url>
+cd <repository-name>
+```
+
+## Step 2: Verify config.yaml
+
+Confirm that the `config.yaml` file at the repository root has been properly completed: team name, members, board link, documentation link, and the data (`folder`, `image_name`, `image_tag`, `authors`) for each of the four applications.
+
+```bash
+cat config.yaml
+```
+
+> This file is used by the pipelines to grade the delivery. If it is not configured correctly, the delivery cannot be evaluated.
+
+## Step 3: Generate Technical Documentation (PlantUML)
+
+Build the PlantUML generator image and run it to render all `.puml` diagrams located in `docs/diagrams/` as `.png` files.
+
+```bash
+cd plantuml-generator
+docker build -t plantuml/plantuml:latest .
+cd ../
+
+docker run --rm -e PLANTUML_LIMIT_SIZE=8192 \
+  -v "$(pwd)/docs/diagrams:/workspace" \
+  -w /workspace \
+  plantuml/plantuml:latest "**.puml"
+```
+
+Verify that the four diagrams were generated:
+
+```bash
+ls docs/diagrams/*.png
+# Should show: entities.png, components.png, deployment.png, networks.png
+```
+
+## Step 4: Run Each Application Locally (Optional, for Development)
+
+For development and quick testing before containerization, each application can be run independently. Refer to the `README.md` in each folder for the exact command and required environment variables:
+
+* [Users README](./users_app/README.md)
+* [Posts README](./posts_app/README.md)
+* [Routes README](./routes_app/README.md)
+* [Offers README](./offers_app/README.md)
+
+Each application requires a PostgreSQL database available on port `5432` (you can start it independently with Docker during development).
+
+## Step 5: Build the Docker Images
+
+Repeat this step for each of the four applications, using the `image_name` and `image_tag` values defined in `config.yaml`:
+
+```bash
+cd users_app
+docker build -t <users_image_name>:<users_image_tag> .
+cd ..
+
+cd posts_app
+docker build -t <posts_image_name>:<posts_image_tag> .
+cd ..
+
+cd routes_app
+docker build -t <routes_image_name>:<routes_image_tag> .
+cd ..
+
+cd offers_app
+docker build -t <offers_image_name>:<offers_image_tag> .
+cd ..
+```
+
+Verify that all four images were built successfully:
+
+```bash
+docker images | grep -E "users|posts|routes|offers"
+```
+
+## Step 6: Start Minikube
+
+```bash
+minikube start --cpus=2 --memory=4g
+```
+
+Confirm that the cluster is active:
+
+```bash
+minikube status
+kubectl get nodes
+```
+
+## Step 7: Load the Images into Minikube
+
+Minikube runs its own internal Docker daemon; locally built images must be explicitly loaded:
+
+```bash
+minikube image load <users_image_name>:<users_image_tag>
+minikube image load <posts_image_name>:<posts_image_tag>
+minikube image load <routes_image_name>:<routes_image_tag>
+minikube image load <offers_image_name>:<offers_image_tag>
+```
+
+Verify that the images are available inside Minikube:
+
+```bash
+minikube image ls | grep -E "users|posts|routes|offers"
+```
+
+## Step 8: Deploy the Kubernetes Manifests
+
+Apply all declarative manifests located in `k8s/` (Deployments, Services, `emptyDir` volumes, and Network Policies):
+
+```bash
+kubectl apply -f k8s/
+```
+
+## Step 9: Verify the Deployment
+
+Confirm that the eight workloads (4 applications + 4 databases) are running correctly in the `default` namespace:
+
+```bash
+kubectl get pods
+kubectl get services
+kubectl get networkpolicies
+```
+
+All pods should show `Running` status and `READY 1/1`. If any pod fails, check the logs:
+
+```bash
+kubectl logs <pod-name>
+kubectl describe pod <pod-name>
+```
+
+## Step 10: Obtain the URLs for Each Application
+
+Each application is exposed through a NodePort Service. Obtain the URL assigned by Minikube for each one:
+
+```bash
+minikube service users-app-service --url
+minikube service posts-app-service --url
+minikube service routes-app-service --url
+minikube service offers-app-service --url
+```
+
+## Step 11: Test the API with Postman
+
+Import the corresponding Postman collections for each application and update the `baseUrl` environment variable (**Current value**, not Initial value) with the URL obtained in the previous step. Run each collection (`Run collection`) and confirm that all tests pass successfully.
+
+Also verify the health endpoints for each application:
+
+```bash
+curl <url-users>/users/ping
+curl <url-posts>/posts/ping
+curl <url-routes>/routes/ping
+curl <url-offers>/offers/ping
+# Each one should respond: pong
+```
+
+## Step 12: Verify Network Isolation
+
+Confirm that each application can communicate only with its own database and not with the databases of the other applications. You can validate this by executing a command inside an application pod and attempting to reach another application's database:
+
+```bash
+kubectl exec -it <users-app-pod-name> -- sh -c "nc -zv posts-db-service 5432"
+# Should fail / timeout, confirming isolation
+```
+
+## Step 13: Run the Validation Pipelines
+
+Before creating the release, manually run the provided pipelines (without modifying them) from the **Actions** tab of the repository on GitHub:
+
+* `Evaluador Documentación Entrega 1` (`ci_evaluador_docs.yml`)
+* `Evaluador Implementación Entrega 1` (`ci_evaluador_entrega1_k8s.yml`)
+
+Confirm that both finish successfully ( passed ✅ ) before continuing.
+
+Additionally, confirm that the unit testing pipeline (`ci_evaluador_unit.yml`) passes correctly on every push/PR to `main`, with a minimum coverage of 70% per application.
+
+## Step 14: Cleanup (Optional)
+
+To remove the deployment and stop Minikube after testing:
+
+```bash
+kubectl delete -f k8s/
+minikube stop
+# To completely remove the cluster:
+minikube delete
+```
+
+## Troubleshooting Common Issues
+
+| Problem                                                  | Possible Cause                                                                      | Solution                                                                                                              |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Pod in `ImagePullBackOff` state                          | The image was not loaded into Minikube, or the name/tag does not match the manifest | Run `minikube image load` with the exact `image_name:image_tag` used in the manifest and `config.yaml`                |
+| Pod in `CrashLoopBackOff` state                          | Error starting the application (database connection, missing environment variable)  | Check `kubectl logs <pod>` and verify the environment variables defined in the Deployment                             |
+| `minikube service --url` does not respond                | The Service is not correctly linked to the Deployment, or the pod is not `Running`  | Run `kubectl get endpoints <service-name>`                                                                            |
+| Postman receives a connection error                      | The `baseUrl` variable (Current value) was not updated, or Minikube is not running  | Repeat Step 10 and update the variable in Postman                                                                     |
+| An application can access another application's database | Network Policy is incorrectly configured or was not applied                         | Run `kubectl get networkpolicies` and compare against `networks.puml`                                                 |
+| PlantUML diagrams are not generated                      | Incorrect mount path or `.puml` syntax errors                                       | Verify that `docs/diagrams/` contains the `.puml` files and review the output from the `plantuml-generator` container |
+
+````

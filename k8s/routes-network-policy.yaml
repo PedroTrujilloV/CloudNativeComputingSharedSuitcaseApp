@@ -1,0 +1,54 @@
+# NetworkPolicy for routes-app and routes-db isolation
+#
+# Enforces that only routes-app pods can connect to routes-db on port 5432.
+# All other ingress traffic to routes-db is denied.
+#
+# ⚠️ IMPORTANT: NetworkPolicies require a CNI plugin (Calico) to be enforced.
+# The default Minikube docker driver does NOT enforce NetworkPolicies.
+# You MUST enable Calico (or another CNI with NetworkPolicy support) before
+# deploying this policy:
+#
+#   minikube stop
+#   minikube delete
+#   minikube start --cni=calico
+#
+# OR use the pre-configured Calico addon (Minikube >= v1.24):
+#
+#   minikube stop
+#   minikube delete
+#   minikube start
+#   minikube addons enable calico
+#
+# After Calico is enabled, deploy this policy:
+#
+#   kubectl apply -f k8s/routes-app.yaml
+#   kubectl apply -f k8s/routes-network-policy.yaml
+---
+# ============================================================
+# NetworkPolicy
+#
+# Only routes-app pods can connect to routes-db.
+# All other ingress traffic to routes-db is denied.
+# ============================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: routes-network
+  namespace: default
+
+spec:
+  podSelector:
+    matchLabels:
+      app: routes-db
+
+  policyTypes:
+    - Ingress
+
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: routes-app
+      ports:
+        - protocol: TCP
+          port: 5432

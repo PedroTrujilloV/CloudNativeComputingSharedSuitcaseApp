@@ -1,0 +1,189 @@
+# Kubernetes deployment for routes_app
+# Minikube deployment: app + PostgreSQL (ephemeral)
+# Namespace: default
+#
+# Usage:
+#   kubectl apply -f k8s/routes-app.yaml
+#   minikube service routes-app-service --url
+---
+
+# ============================================================
+# routes-app Deployment
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: routes-app
+  labels:
+    app: routes-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: routes-app
+  template:
+    metadata:
+      labels:
+        app: routes-app
+    spec:
+      containers:
+        - name: routes-app
+          image: routes_app:v0.0.0
+          ports:
+            - containerPort: 8000
+
+          # Environment-based database configuration
+          env:
+            - name: APP_NAME
+              value: "routes_app"
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: DB_DRIVER
+              value: "postgresql"
+            - name: DB_HOST
+              value: "routes-db-service"
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_NAME
+              value: "routes_db"
+            - name: DB_USER
+              value: "routes_user"
+            - name: DB_PASSWORD
+              value: "routes_pass"
+
+          livenessProbe:
+            httpGet:
+              path: /routes/ping
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /routes/ping
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          resources:
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+
+---
+# ============================================================
+# routes-app Service
+# NodePort for external access through Minikube
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: routes-app-service
+  labels:
+    app: routes-app
+spec:
+  type: NodePort
+  selector:
+    app: routes-app
+  ports:
+    - port: 8000
+      targetPort: 8000
+      nodePort: 30002
+      protocol: TCP
+
+---
+# ============================================================
+# routes-db Deployment
+# PostgreSQL
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: routes-db
+  labels:
+    app: routes-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: routes-db
+  template:
+    metadata:
+      labels:
+        app: routes-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+
+          env:
+            - name: POSTGRES_DB
+              value: "routes_db"
+            - name: POSTGRES_USER
+              value: "routes_user"
+            - name: POSTGRES_PASSWORD
+              value: "routes_pass"
+
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - routes_user
+                - -d
+                - routes_db
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - routes_user
+                - -d
+                - routes_db
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          volumeMounts:
+            - name: routes-db-storage
+              mountPath: /var/lib/postgresql/data
+
+      # Ephemeral storage as required by the assignment
+      volumes:
+        - name: routes-db-storage
+          emptyDir: {}
+
+---
+# ============================================================
+# routes-db Service
+# ClusterIP — internal access only
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: routes-db-service
+  labels:
+    app: routes-db
+spec:
+  type: ClusterIP
+  selector:
+    app: routes-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP

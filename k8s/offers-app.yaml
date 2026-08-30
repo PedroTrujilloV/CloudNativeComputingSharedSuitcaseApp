@@ -1,0 +1,159 @@
+# Kubernetes deployment for offers_app
+# Minikube: app + PostgreSQL (ephemeral emptyDir)
+# Namespace: default
+#
+# Usage (from repository root):
+#   kubectl apply -f k8s/offers-app.yaml
+#   minikube service offers-app-service --url
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: offers-app
+  labels:
+    app: offers-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: offers-app
+  template:
+    metadata:
+      labels:
+        app: offers-app
+    spec:
+      containers:
+        - name: offers-app
+          image: offers_app:v0.0.0
+          ports:
+            - containerPort: 8000
+          env:
+            - name: APP_NAME
+              value: "offers_app"
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: DB_DRIVER
+              value: "postgresql"
+            - name: DB_HOST
+              value: "offers-db-service"
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_NAME
+              value: "offers_db"
+            - name: DB_USER
+              value: "offers_user"
+            - name: DB_PASSWORD
+              value: "offers_pass"
+          livenessProbe:
+            httpGet:
+              path: /offers/ping
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /offers/ping
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: offers-app-service
+  labels:
+    app: offers-app
+spec:
+  type: NodePort
+  selector:
+    app: offers-app
+  ports:
+    - port: 8000
+      targetPort: 8000
+      nodePort: 30003
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: offers-db
+  labels:
+    app: offers-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: offers-db
+  template:
+    metadata:
+      labels:
+        app: offers-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: "offers_db"
+            - name: POSTGRES_USER
+              value: "offers_user"
+            - name: POSTGRES_PASSWORD
+              value: "offers_pass"
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - offers_user
+                - -d
+                - offers_db
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - offers_user
+                - -d
+                - offers_db
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: offers-db-storage
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: offers-db-storage
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: offers-db-service
+  labels:
+    app: offers-db
+spec:
+  type: ClusterIP
+  selector:
+    app: offers-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP

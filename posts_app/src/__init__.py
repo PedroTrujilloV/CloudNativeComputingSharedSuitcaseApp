@@ -1,0 +1,1 @@
+"""Posts Service Package."""

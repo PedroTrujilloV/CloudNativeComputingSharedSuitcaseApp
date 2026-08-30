@@ -8,22 +8,140 @@ on:
     branches:
       - main
 jobs:
-  pets_app:
+  users_app:
     runs-on: ubuntu-latest
-    name: Verify pets_app
+    name: Verify users_app
     strategy:
       fail-fast: true
+
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: 3.11
+          python-version: "3.11"
+
       - name: Set up Poetry
         uses: abatilo/actions-poetry@v3
         with:
           poetry-version: 2.1.1
-      - name: Run linter checkers in pets_app
-        run: make lintcheck DIR=pets_app
-      - name: Run unit tests
-        run: make unittest DIR=pets_app
+
+      - name: Install dependencies
+        run: |
+          cd users_app
+          poetry install
+
+      - name: Run unit tests with coverage
+        run: |
+          cd users_app
+          poetry run pytest --cov=src --cov-fail-under=70 -v
+
+  routes_app:
+    runs-on: ubuntu-latest
+    name: Verify routes_app
+    strategy:
+      fail-fast: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Poetry
+        uses: abatilo/actions-poetry@v3
+        with:
+          poetry-version: 2.1.1
+
+      - name: Install dependencies
+        run: |
+          cd routes_app
+          poetry install
+
+      - name: Run unit tests with coverage
+        run: |
+          cd routes_app
+          poetry run pytest --cov=src --cov-fail-under=70 -v
+
+  posts_app:
+    runs-on: ubuntu-latest
+    name: Verify posts_app
+    strategy:
+      fail-fast: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Poetry
+        uses: abatilo/actions-poetry@v3
+        with:
+          poetry-version: 2.1.1
+
+      - name: Install dependencies
+        run: |
+          cd posts_app
+          poetry install
+
+      - name: Run unit tests with coverage
+        run: |
+          cd posts_app
+          poetry run pytest --cov=src --cov-fail-under=70 -v
+
+  offers_app:
+    runs-on: ubuntu-latest
+    name: Verify offers_app
+    strategy:
+      fail-fast: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Poetry
+        uses: abatilo/actions-poetry@v3
+        with:
+          poetry-version: 2.1.1
+
+      - name: Install dependencies
+        run: |
+          cd offers_app
+          poetry install
+
+      - name: Run unit tests with coverage
+        run: |
+          cd offers_app
+          poetry run pytest --cov=src --cov-fail-under=70 -v
+
+
+# Commented out because pets_app is only an example
+  # pets_app:
+  #   runs-on: ubuntu-latest
+  #   name: Verify pets_app
+  #   strategy:
+  #     fail-fast: true
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Set up Python
+  #       uses: actions/setup-python@v5
+  #       with:
+  #         python-version: 3.11
+  #     - name: Set up Poetry
+  #       uses: abatilo/actions-poetry@v3
+  #       with:
+  #         poetry-version: 2.1.1
+  #     - name: Run linter checkers in pets_app
+  #       run: make lintcheck DIR=pets_app
+  #     - name: Run unit tests
+  #       run: make u

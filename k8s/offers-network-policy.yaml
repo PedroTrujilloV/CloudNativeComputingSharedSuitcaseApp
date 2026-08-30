@@ -1,0 +1,32 @@
+# Network isolation for offers_app
+# Usage:
+#   kubectl apply -f k8s/offers-network-policy.yaml
+---
+# ============================================================
+# NetworkPolicy
+#
+# Only offers-app pods can connect to offers-db.
+# All other ingress traffic to offers-db is denied.
+# ============================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: offers-network
+  namespace: default
+
+spec:
+  podSelector:
+    matchLabels:
+      app: offers-db
+
+  policyTypes:
+    - Ingress
+
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: offers-app
+      ports:
+        - protocol: TCP
+          port: 5432

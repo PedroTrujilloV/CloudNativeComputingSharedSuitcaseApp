@@ -1,0 +1,749 @@
+{
+	"info": {
+		"_postman_id": "3e0f7b2a-8c1d-4d5e-9f6a-b2c3d4e5f6a7",
+		"name": "[MISO] Offers",
+		"description": "Collection to verify all the endpoints in the Offers microservice are working as expected.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "213032"
+	},
+	"item": [
+		{
+			"name": "ping",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 and body is pong\", function () {",
+							"    pm.response.to.have.status(200);",
+							"    let body = pm.response.text()",
+							"    pm.expect(body).to.eq(\"pong\")",
+							"});"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/offers/ping",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"offers",
+						"ping"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Create offer",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 201 and offer was created\", function () {",
+							"    pm.response.to.have.status(201);",
+							"    let body = pm.response.json()",
+							"    pm.expect(body).to.have.keys([\"id\", \"userId\", \"createdAt\"]);",
+							"    pm.expect(body[\"userId\"]).to.eq(pm.collectionVariables.get(\"user_id\"))",
+							"});",
+							"",
+							"pm.collectionVariables.set(\"offer_id\", pm.response.json()[\"id\"]);"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"postId\": \"c2bcd9b4-6f3a-4f7e-9a1d-1a2b3c4d5e6f\",\n    \"userId\": \"{{user_id}}\",\n    \"description\": \"Entrega urgente en Bogota\",\n    \"size\": \"MEDIUM\",\n    \"fragile\": false,\n    \"offer\": 150.50\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/offers",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"offers"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Create offer, description too long (400)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 400 for description longer than 140 chars\", function () {",
+							"    pm.response.to.have.status(400);",
+							"});"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"postId\": \"5f6e7d8c-9b0a-4c1d-8e2f-3a4b5c6d7e8f\",\n    \"userId\": \"{{user_id}}\",\n    \"description\": \"Este es un texto de descripcion que supera ampliamente el limite de ciento cuarenta caracteres establecido por el contrato de la API, por lo tanto debe ser rechazado\",\n    \"size\": \"LARGE\",\n    \"fragile\": false,\n    \"offer\": 200.00\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/offers",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"offers"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Create offer, too many decimals (400)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 400 for offer with more than two decimals\", function () {",
+							"    pm.response.to.have.status(400);",
+							"});"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"postId\": \"7f8e9d0c-1b2a-4c3d-8e4f-5a6b7c8d9e0f\",\n    \"userId\": \"{{user_id}}\",\n    \"description\": \"Oferta con decimales invalidos\",\n    \"size\": \"MEDIUM\",\n    \"fragile\": false,\n    \"offer\": 150.505\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/offers",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"offers"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Create offer, negative value (412)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 412 for negative offer value\", function () {",
+							"    pm.response.to.have.status(412);",
+							"});"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"postId\": \"7f8e9d0c-1b2a-4c3d-8e4f-5a6b7c8d9e0f\",\n    \"userId\": \"{{user_id}}\",\n    \"description\": \"Oferta con valor negativo\",\n    \"size\": \"MEDIUM\",\n    \"fragile\": false,\n    \"offer\": -10.00\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/offers",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"offers"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "List offers (200)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 and body is an array of full offers\", function () {",
+							"    pm.response.to.have.status(200);",
+							"    let body = pm.response.json();",
+							"    pm.expect(body).to.be.an('array');",
+							"    if (body.length > 0) {",
+							"        pm.expect(body[0]).to.have.keys([\"id\", \"postId\", \"userId\", \"description\", \"size\", \"fragile\", \"offer\", \"createdAt\"]);",
+							"    }",
+							"});"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/offers",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"offers"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "List offers filtered by post (200)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 and only matching offers are returned\", function () {",
+							"    pm.response.to.have.status(200);",
+							"    let body = pm.response.json();",
+							"    pm.expect(body).to.be.an('array');",
+							"    if (body.length > 0) {",
+							"        pm.expect(body[0][\"postId\"]).to.eq(\"c2bcd9b4-6f3a-4f7e-9a1d-1a2b3c4d5e6f\");",
+							"    }",
+							"});"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/offers?post=c2bcd9b4-6f3a-4f7e-9a1d-1a2b3c4d5e6f",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"query": [
+						{
+							"key": "post",
+							"value": "c2bcd9b4-6f3a-4f7e-9a1d-1a2b3c4d5e6f"
+						}
+					],
+					"path": [
+						"offers"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "List offers malformed filter (400)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 400 for malformed filter\", function () {",
+							"    pm.response.to.have.status(400);",
+							"});"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/offers?post=not-a-uuid",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"query": [
+						{
+							"key": "post",
+							"value": "not-a-uuid"
+						}
+					],
+					"path": [
+						"offers"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get offer by id (200)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 and returns the full offer\", function () {",
+							"    pm.response.to.have.status(200);",
+							"    let body = pm.response.json();",
+							"    pm.expect(body).to.have.keys([\"id\", \"postId\", \"userId\", \"description\", \"size\", \"fragile\", \"offer\", \"createdAt\"]);",
+							"    pm.expect(body[\"id\"]).to.eq(pm.collectionVariables.get(\"offer_id\"));",
+							"});"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/offers/{{offer_id}}",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"offers",
+						"{{offer_id}}"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get offer invalid id (400)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 400 for invalid id\", function () {",
+							"    pm.response.to.have.status(400);",
+							"});"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/offers/not-a-uuid",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"offers",
+						"not-a-uuid"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get offer not found (404)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 404 for unknown id\", function () {",
+							"    pm.response.to.have.status(404);",
+							"});"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/offers/ffffffff-ffff-ffff-ffff-ffffffffffff",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"offers",
+						"ffffffff-ffff-ffff-ffff-ffffffffffff"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Count offers (200)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 and count is a non-negative number\", function () {",
+							"    pm.response.to.have.status(200);",
+							"    let body = pm.response.json();",
+							"    pm.expect(body).to.have.keys([\"count\"]);",
+							"    pm.expect(body[\"count\"]).to.be.a('number');",
+							"    pm.expect(body[\"count\"]).to.be.at.least(0);",
+							"});"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/offers/count",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"offers",
+						"count"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Delete offer (200)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 and offer was deleted\", function () {",
+							"    pm.response.to.have.status(200);",
+							"    let body = pm.response.json();",
+							"    pm.expect(body[\"msg\"]).to.eq(\"la oferta fue eliminada\");",
+							"});"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "DELETE",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/offers/{{offer_id}}",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"offers",
+						"{{offer_id}}"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Delete offer invalid id (400)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 400 for invalid id\", function () {",
+							"    pm.response.to.have.status(400);",
+							"});"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "DELETE",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/offers/not-a-uuid",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"offers",
+						"not-a-uuid"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Delete offer not found (404)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 404 for unknown id\", function () {",
+							"    pm.response.to.have.status(404);",
+							"});"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "DELETE",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/offers/ffffffff-ffff-ffff-ffff-ffffffffffff",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"offers",
+						"ffffffff-ffff-ffff-ffff-ffffffffffff"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Reset offers",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200 and data was deleted\", function () {",
+							"    pm.response.to.have.status(200);",
+							"    let body = pm.response.json()",
+							"    pm.expect(body[\"msg\"]).to.eq(\"Todos los datos fueron eliminados\")",
+							"});"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "POST",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/offers/reset",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"offers",
+						"reset"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Create offer after reset (201)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 201 after reset\", function () {",
+							"    pm.response.to.have.status(201);",
+							"    let body = pm.response.json()",
+							"    pm.expect(body).to.have.keys([\"id\", \"userId\", \"createdAt\"]);",
+							"});",
+							"",
+							"pm.collectionVariables.set(\"offer_id\", pm.response.json()[\"id\"]);"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"postId\": \"c2bcd9b4-6f3a-4f7e-9a1d-1a2b3c4d5e6f\",\n    \"userId\": \"{{user_id}}\",\n    \"description\": \"Entrega urgente en Bogota\",\n    \"size\": \"MEDIUM\",\n    \"fragile\": false,\n    \"offer\": 150.50\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/offers",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"offers"
+					]
+				}
+			},
+			"response": []
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"packages": {},
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"packages": {},
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://0.0.0.0:8000",
+			"type": "string"
+		},
+		{
+			"key": "user_id",
+			"value": "1a2b3c4d-5e6f-4a8b-9c0d-1e2f3a4b5c6d"
+		},
+		{
+			"key": "offer_id",
+			"value": ""
+		}
+	]
+}
