@@ -1,0 +1,67 @@
+@startuml entities
+
+hide circle
+skinparam linetype ortho
+
+' User (usuario)
+entity "users" as UsersEntity {
+  * id : string <<uuid>>
+  --
+  username : string
+  email : string
+  phoneNumber : string
+  dni : string
+  fullName : string
+  password : string
+  salt : string
+  token : string
+  status : string
+  expireAt : datetime
+  createdAt : datetime
+  updatedAt : datetime
+}
+
+' Route (trayecto)
+entity "routes" as RoutesEntity {
+  * id : string <<uuid>>
+  --
+  flightId : string
+  sourceAirportCode : string
+  sourceCountry : string
+  destinyAirportCode : string
+  destinyCountry : string
+  bagCost : integer
+  plannedStartDate : datetime
+  plannedEndDate : datetime
+  createdAt : datetime
+  updatedAt : datetime
+}
+
+' Post (publicación)
+entity "posts" as PostsEntity {
+  * id : string <<uuid>>
+  --
+  routeId : string
+  userId : string
+  expireAt : datetime
+  createdAt : datetime
+}
+
+' Offer (oferta)
+entity "offers" as OffersEntity {
+  * id : string <<uuid>>
+  --
+  postId : string
+  userId : string
+  description : string
+  size : string
+  fragile : boolean
+  offer : number
+  createdAt : datetime
+}
+
+PostsEntity "1" --> "1" UsersEntity
+PostsEntity "1" --> "1" RoutesEntity
+OffersEntity "*" --> "1" PostsEntity
+
+@enduml

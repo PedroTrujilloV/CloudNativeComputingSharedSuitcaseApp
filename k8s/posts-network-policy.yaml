@@ -1,0 +1,46 @@
+# NetworkPolicy for posts-app and posts-db isolation
+#
+# Enforces that only posts-app pods can connect to posts-db on port 5432.
+# All other ingress traffic to posts-db is denied.
+#
+# ⚠️ IMPORTANT: NetworkPolicies require a CNI that enforces them (Calico).
+# Vanilla `minikube start` uses Kindnet and does NOT enforce NetworkPolicies.
+# Calico is not a Minikube addon on current versions. Recreate the cluster:
+#
+#   minikube stop
+#   minikube delete
+#   minikube start --cni=calico
+#
+# After Calico is Ready, deploy this policy:
+#
+#   kubectl apply -f k8s/posts-app.yaml
+#   kubectl apply -f k8s/posts-network-policy.yaml
+---
+# ============================================================
+# NetworkPolicy
+#
+# Only posts-app pods can connect to posts-db.
+# All other ingress traffic to posts-db is denied.
+# ============================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: posts-network
+  namespace: default
+
+spec:
+  podSelector:
+    matchLabels:
+      app: posts-db
+
+  policyTypes:
+    - Ingress
+
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: posts-app
+      ports:
+        - protocol: TCP
+          port: 5432

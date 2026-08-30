@@ -1,0 +1,46 @@
+# NetworkPolicy for users-app and users-db isolation
+#
+# Enforces that only users-app pods can connect to users-db on port 5432.
+# All other ingress traffic to users-db is denied.
+#
+# ⚠️ IMPORTANT: NetworkPolicies require a CNI that enforces them (Calico).
+# Vanilla `minikube start` uses Kindnet and does NOT enforce NetworkPolicies.
+# Calico is not a Minikube addon on current versions. Recreate the cluster:
+#
+#   minikube stop
+#   minikube delete
+#   minikube start --cni=calico
+#
+# After Calico is Ready, deploy this policy:
+#
+#   kubectl apply -f k8s/users-app.yaml
+#   kubectl apply -f k8s/users-network-policy.yaml
+---
+# ============================================================
+# NetworkPolicy
+#
+# Only users-app pods can connect to users-db.
+# All other ingress traffic to users-db is denied.
+# ============================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: users-network
+  namespace: default
+
+spec:
+  podSelector:
+    matchLabels:
+      app: users-db
+
+  policyTypes:
+    - Ingress
+
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: users-app
+      ports:
+        - protocol: TCP
+          port: 5432

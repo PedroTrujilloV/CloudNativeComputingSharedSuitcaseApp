@@ -1,0 +1,27 @@
+@startuml components
+
+actor "User" as User
+
+frame "env" {
+  component "users_app" as UsersApp <<component>>
+  component "posts_app" as PostsApp <<component>>
+  component "offers_app" as OffersApp <<component>>
+  component "routes_app" as RoutesApp <<component>>
+
+  database "users_db" as UsersDb
+  database "posts_db" as PostsDb
+  database "offers_db" as OffersDb
+  database "routes_db" as RoutesDb
+
+  UsersApp --> UsersDb
+  PostsApp --> PostsDb
+  OffersApp --> OffersDb
+  RoutesApp --> RoutesDb
+}
+
+User ..> UsersApp
+User ..> PostsApp
+User ..> OffersApp
+User ..> RoutesApp
+
+@enduml

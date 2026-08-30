@@ -1,0 +1,103 @@
+@startuml deployment
+
+actor "User" as User
+
+frame "K8s" {
+
+  ' ---------- Services (App) ----------
+  component "users-app-service" as UsersAppService <<Service>>
+  component "posts-app-service" as PostsAppService <<Service>>
+  component "offers-app-service" as OffersAppService <<Service>>
+  component "routes-app-service" as RoutesAppService <<Service>>
+
+  ' ---------- App Pods ----------
+  node "pod" as UsersAppPod {
+    component "users-app" as UsersAppContainer <<container>> {
+      component "users_app" as UsersApp
+    }
+  }
+
+  node "pod" as PostsAppPod {
+    component "posts-app" as PostsAppContainer <<container>> {
+      component "posts_app" as PostsApp
+    }
+  }
+
+  node "pod" as OffersAppPod {
+    component "offers-app" as OffersAppContainer <<container>> {
+      component "offers_app" as OffersApp
+    }
+  }
+
+  node "pod" as RoutesAppPod {
+    component "routes-app" as RoutesAppContainer <<container>> {
+      component "routes_app" as RoutesApp
+    }
+  }
+
+  ' ---------- Services (DB) ----------
+  component "users-db-service" as UsersDbService <<Service>>
+  component "posts-db-service" as PostsDbService <<Service>>
+  component "offers-db-service" as OffersDbService <<Service>>
+  component "routes-db-service" as RoutesDbService <<Service>>
+
+  ' ---------- DB Pods ----------
+  node "pod" as UsersDbPod {
+    component "users-db" as UsersDbContainer <<container>> {
+      database "users_db" as UsersDb
+    }
+  }
+
+  node "pod" as PostsDbPod {
+    component "posts-db" as PostsDbContainer <<container>> {
+      database "posts_db" as PostsDb
+    }
+  }
+
+  node "pod" as OffersDbPod {
+    component "offers-db" as OffersDbContainer <<container>> {
+      database "offers_db" as OffersDb
+    }
+  }
+
+  node "pod" as RoutesDbPod {
+    component "routes-db" as RoutesDbContainer <<container>> {
+      database "routes_db" as RoutesDb
+    }
+  }
+
+  ' ---------- Volumes ----------
+  artifact "users-db-volumen" as UsersDbVolume
+  artifact "posts-db-volumen" as PostsDbVolume
+  artifact "offers-db-volumen" as OffersDbVolume
+  artifact "routes-db-volumen" as RoutesDbVolume
+
+  ' ---------- Internal wiring ----------
+  UsersAppService --> UsersAppPod
+  PostsAppService --> PostsAppPod
+  OffersAppService --> OffersAppPod
+  RoutesAppService --> RoutesAppPod
+
+  UsersAppPod --> UsersDbService
+  PostsAppPod --> PostsDbService
+  OffersAppPod --> OffersDbService
+  RoutesAppPod --> RoutesDbService
+
+  UsersDbService --> UsersDbPod
+  PostsDbService --> PostsDbPod
+  OffersDbService --> OffersDbPod
+  RoutesDbService --> RoutesDbPod
+
+  UsersDbPod --> UsersDbVolume
+  PostsDbPod --> PostsDbVolume
+  OffersDbPod --> OffersDbVolume
+  RoutesDbPod --> RoutesDbVolume
+}
+
+' ---------- External communication ----------
+User ..> UsersAppService : HTTP
+User ..> PostsAppService : HTTP
+User ..> OffersAppService : HTTP
+User ..> RoutesAppService : HTTP
+
+@enduml

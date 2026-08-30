@@ -1,0 +1,91 @@
+@startuml networks
+
+cloud "Internet" as Internet
+
+frame "K8s" {
+  node "Node" {
+
+    package "users-network" <<Network Policy>> {
+      component "users-app-service" as UsersAppService <<NodePort>>
+      node "pod" as UsersAppPod {
+        component "users-app" as UsersAppContainer <<container>> {
+          component "users_app" as UsersApp
+        }
+      }
+      component "users-db-service" as UsersDbService <<ClusterIP>>
+      node "pod" as UsersDbPod {
+        component "users-db" as UsersDbContainer <<container>> {
+          component "users_db" as UsersDb
+        }
+      }
+
+      UsersAppService --> UsersAppPod : "Port: 80"
+      UsersAppPod --> UsersDbService : "Port: 5432"
+      UsersDbService --> UsersDbPod : "Port: 5432"
+    }
+
+    package "posts-network" <<Network Policy>> {
+      component "posts-app-service" as PostsAppService <<NodePort>>
+      node "pod" as PostsAppPod {
+        component "posts-app" as PostsAppContainer <<container>> {
+          component "posts_app" as PostsApp
+        }
+      }
+      component "posts-db-service" as PostsDbService <<ClusterIP>>
+      node "pod" as PostsDbPod {
+        component "posts-db" as PostsDbContainer <<container>> {
+          component "posts_db" as PostsDb
+        }
+      }
+
+      PostsAppService --> PostsAppPod : "Port: 80"
+      PostsAppPod --> PostsDbService : "Port: 5432"
+      PostsDbService --> PostsDbPod : "Port: 5432"
+    }
+
+    package "routes-network" <<Network Policy>> {
+      component "routes-app-service" as RoutesAppService <<NodePort>>
+      node "pod" as RoutesAppPod {
+        component "routes-app" as RoutesAppContainer <<container>> {
+          component "routes_app" as RoutesApp
+        }
+      }
+      component "routes-db-service" as RoutesDbService <<ClusterIP>>
+      node "pod" as RoutesDbPod {
+        component "routes-db" as RoutesDbContainer <<container>> {
+          component "routes_db" as RoutesDb
+        }
+      }
+
+      RoutesAppService --> RoutesAppPod : "Port: 80"
+      RoutesAppPod --> RoutesDbService : "Port: 5432"
+      RoutesDbService --> RoutesDbPod : "Port: 5432"
+    }
+
+    package "offers-network" <<Network Policy>> {
+      component "offers-app-service" as OffersAppService <<NodePort>>
+      node "pod" as OffersAppPod {
+        component "offers-app" as OffersAppContainer <<container>> {
+          component "offers_app" as OffersApp
+        }
+      }
+      component "offers-db-service" as OffersDbService <<ClusterIP>>
+      node "pod" as OffersDbPod {
+        component "offers-db" as OffersDbContainer <<container>> {
+          component "offers_db" as OffersDb
+        }
+      }
+
+      OffersAppService --> OffersAppPod : "Port: 80"
+      OffersAppPod --> OffersDbService : "Port: 5432"
+      OffersDbService --> OffersDbPod : "Port: 5432"
+    }
+  }
+}
+
+Internet ..> UsersAppService : "Port: 30000"
+Internet ..> PostsAppService : "Port: 30001"
+Internet ..> RoutesAppService : "Port: 30002"
+Internet ..> OffersAppService : "Port: 30003"
+
+@enduml

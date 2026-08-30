@@ -1,0 +1,20 @@
+name: CI pipeline
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+jobs:
+  vale:
+    name: Docs checker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: vale-cli/vale-action@v3
+        with:
+          files: docs
+          fail_on_error: true
+          filter_mode: nofilter
+          reporter: local
