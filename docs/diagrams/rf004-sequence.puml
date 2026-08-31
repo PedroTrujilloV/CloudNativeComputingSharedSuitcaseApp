@@ -1,0 +1,111 @@
+@startuml rf004-sequence
+
+title RF-004 - Create Offer (with exception flows)
+
+actor "User" as User
+participant "Ingress" as Ingress
+participant "rf004_create_offer_app" as RF004
+participant "users_app" as Users
+participant "posts_app" as Posts
+participant "routes_app" as Routes
+participant "offers_app" as Offers
+participant "scores_app" as Scores
+
+User -> Ingress : POST /rf004/posts/{id}/offers\nAuthorization: Bearer <token>\n{description, size, fragile, offer}
+Ingress -> RF004 : forward request
+
+' ---------- Request validation ----------
+alt missing/malformed required field
+  RF004 --> Ingress : 400
+  Ingress --> User : 400
+else body is well-formed
+  ' ---------- Authentication ----------
+  RF004 -> Users : GET /users/me\nAuthorization: Bearer <token>
+
+  alt token missing
+    Users --> RF004 : 403
+    RF004 --> Ingress : 403
+    Ingress --> User : 403
+  else token invalid or expired
+    Users --> RF004 : 401
+    RF004 --> Ingress : 401
+    Ingress --> User : 401
+  else token valid
+    Users --> RF004 : 200 {id, username, ...}
+
+    ' ---------- Post existence check ----------
+    RF004 -> Posts : GET /posts/{id}
+
+    alt Posts unreachable / integration failure
+      Posts --> RF004 : (timeout / 5xx)
+      RF004 --> Ingress : 503\n{"msg": "El servicio está\ntemporalmente fuera de servicio."}
+      Ingress --> User : 503
+    else post does not exist
+      Posts --> RF004 : 404
+      RF004 --> Ingress : 404 (pass through)
+      Ingress --> User : 404
+    else post exists
+      Posts --> RF004 : 200 {id, routeId, userId, expireAt, ...}
+
+      alt post belongs to the authenticated user
+        RF004 --> Ingress : 412 (own post)
+        Ingress --> User : 412
+      else post belongs to another user
+
+        alt post already expired
+          RF004 --> Ingress : 412 (post expired)
+          Ingress --> User : 412
+        else post not expired
+
+          ' ---------- Route data for score calculation ----------
+          RF004 -> Routes : GET /routes/{routeId}
+
+          alt Routes unreachable / integration failure
+            Routes --> RF004 : (timeout / 5xx)
+            RF004 --> Ingress : 503\n{"msg": "El servicio está\ntemporalmente fuera de servicio."}
+            Ingress --> User : 503
+          else route data retrieved
+            Routes --> RF004 : 200 {id, bagCost, ...}
+
+            ' ---------- Offer creation ----------
+            RF004 -> Offers : POST /offers\n{postId, userId, description,\nsize, fragile, offer}
+
+            alt Offers unreachable / integration failure
+              Offers --> RF004 : (timeout / 5xx)
+              RF004 --> Ingress : 503\n{"msg": "El servicio está\ntemporalmente fuera de servicio."}
+              Ingress --> User : 503
+            else offer created successfully
+              Offers --> RF004 : 201 {id, userId, createdAt}
+
+              ' ---------- Score calculation & persistence ----------
+              RF004 -> RF004 : calculate score\n(offer amount, size occupancy %, bagCost)
+              RF004 -> Scores : POST /scores\n{offerId, score}
+
+              alt Scores unreachable / integration failure
+                Scores --> RF004 : (timeout / 5xx)
+                note right of RF004
+                  Consistency requirement:
+                  the offer already exists in Offers.
+                  Per RF-004's resilience requirement,
+                  the flow does not roll back the offer
+                  just because scoring is temporarily
+                  unavailable; the score remains
+                  undefined and will read as null
+                  in RF-005 until Scores recovers.
+                end note
+                RF004 --> Ingress : 201\n{"data": {id, userId, createdAt, postId},\n"msg": "Oferta creada; score pendiente\nde cálculo."}
+                Ingress --> User : 201 (offer persisted,\nscore pending)
+              else score persisted successfully
+                Scores --> RF004 : 201 {offerId, score}
+                RF004 --> Ingress : 201\n{"data": {id, userId, createdAt, postId},\n"msg": "Oferta creada exitosamente."}
+                Ingress --> User : 201
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+end
+
+@enduml

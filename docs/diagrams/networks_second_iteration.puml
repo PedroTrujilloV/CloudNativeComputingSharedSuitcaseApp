@@ -1,0 +1,127 @@
+@startuml networks_second_iteration
+
+cloud "Internet" as Internet
+
+frame "AWS VPC" {
+
+  frame "EKS - Node" {
+
+    package "cluster-network" <<Network Policy>> {
+
+      component "ingress" as Ingress <<ALB / Ingress>>
+
+      component "rf003-create-post-service" as RF003Service <<ClusterIP>>
+      node "pod" as RF003Pod {
+        component "rf003-create-post-app" as RF003Container <<container>> {
+          component "rf003_create_post_app" as RF003App
+        }
+      }
+
+      component "rf004-create-offer-service" as RF004Service <<ClusterIP>>
+      node "pod" as RF004Pod {
+        component "rf004-create-offer-app" as RF004Container <<container>> {
+          component "rf004_create_offer_app" as RF004App
+        }
+      }
+
+      component "rf005-query-post-service" as RF005Service <<ClusterIP>>
+      node "pod" as RF005Pod {
+        component "rf005-query-post-app" as RF005Container <<container>> {
+          component "rf005_query_post_app" as RF005App
+        }
+      }
+
+      component "users-app-service" as UsersAppService <<ClusterIP>>
+      node "pod" as UsersAppPod {
+        component "users-app" as UsersAppContainer <<container>> {
+          component "users_app" as UsersApp
+        }
+      }
+
+      component "posts-app-service" as PostsAppService <<ClusterIP>>
+      node "pod" as PostsAppPod {
+        component "posts-app" as PostsAppContainer <<container>> {
+          component "posts_app" as PostsApp
+        }
+      }
+
+      component "offers-app-service" as OffersAppService <<ClusterIP>>
+      node "pod" as OffersAppPod {
+        component "offers-app" as OffersAppContainer <<container>> {
+          component "offers_app" as OffersApp
+        }
+      }
+
+      component "routes-app-service" as RoutesAppService <<ClusterIP>>
+      node "pod" as RoutesAppPod {
+        component "routes-app" as RoutesAppContainer <<container>> {
+          component "routes_app" as RoutesApp
+        }
+      }
+
+      component "scores-app-service" as ScoresAppService <<ClusterIP>>
+      node "pod" as ScoresAppPod {
+        component "scores-app" as ScoresAppContainer <<container>> {
+          component "scores_app" as ScoresApp
+        }
+      }
+
+      Ingress --> RF003Service : "Port: 80\n/rf003/posts"
+      Ingress --> RF004Service : "Port: 80\n/rf004/posts/{id}/offers"
+      Ingress --> RF005Service : "Port: 80\n/rf005/posts/{id}"
+      Ingress --> UsersAppService : "Port: 80\n/users/*"
+      Ingress --> PostsAppService : "Port: 80\n/posts/*"
+      Ingress --> OffersAppService : "Port: 80\n/offers/*"
+      Ingress --> RoutesAppService : "Port: 80\n/routes/*"
+
+      RF003Service --> RF003Pod : "Port: 80"
+      RF004Service --> RF004Pod : "Port: 80"
+      RF005Service --> RF005Pod : "Port: 80"
+
+      RF003Pod --> UsersAppService : "Port: 80"
+      RF003Pod --> RoutesAppService : "Port: 80"
+      RF003Pod --> PostsAppService : "Port: 80"
+
+      RF004Pod --> UsersAppService : "Port: 80"
+      RF004Pod --> PostsAppService : "Port: 80"
+      RF004Pod --> RoutesAppService : "Port: 80"
+      RF004Pod --> OffersAppService : "Port: 80"
+      RF004Pod --> ScoresAppService : "Port: 80"
+
+      RF005Pod --> UsersAppService : "Port: 80"
+      RF005Pod --> PostsAppService : "Port: 80"
+      RF005Pod --> RoutesAppService : "Port: 80"
+      RF005Pod --> OffersAppService : "Port: 80"
+      RF005Pod --> ScoresAppService : "Port: 80"
+
+      UsersAppService --> UsersAppPod : "Port: 80"
+      PostsAppService --> PostsAppPod : "Port: 80"
+      OffersAppService --> OffersAppPod : "Port: 80"
+      RoutesAppService --> RoutesAppPod : "Port: 80"
+      ScoresAppService --> ScoresAppPod : "Port: 80"
+    }
+  }
+
+  database "RDS\n(shared_db)" as SharedDb
+
+  UsersAppPod --> SharedDb : "Port: 5432"
+  PostsAppPod --> SharedDb : "Port: 5432"
+  OffersAppPod --> SharedDb : "Port: 5432"
+  RoutesAppPod --> SharedDb : "Port: 5432"
+  ScoresAppPod --> SharedDb : "Port: 5432"
+
+  note bottom of SharedDb
+  Single RDS instance, reached over
+  the VPC netwokr, not a K8s pod,
+  so it is outside the cluster's
+  NetworkPolicy boundary.
+  Isolation between apps' data is
+  enforced at the PostgreSQL level
+  (per-app schema + role/grants),
+  not by NetworkPolicy.
+  end note
+}
+
+Internet ..> Ingress : "HTTP\nPort: 443"
+
+@enduml

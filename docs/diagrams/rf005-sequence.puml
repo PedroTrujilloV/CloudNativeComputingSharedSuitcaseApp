@@ -1,0 +1,96 @@
+@startuml rf005-sequence
+
+title RF-005 - Query Post (with exception flows)
+
+actor "User" as User
+participant "Ingress" as Ingress
+participant "rf005_query_post_app" as RF005
+participant "users_app" as Users
+participant "posts_app" as Posts
+participant "routes_app" as Routes
+participant "offers_app" as Offers
+participant "scores_app" as Scores
+
+User -> Ingress : GET /rf005/posts/{id}\nAuthorization: Bearer <token>
+Ingress -> RF005 : forward request
+
+' ---------- Authentication ----------
+RF005 -> Users : GET /users/me\nAuthorization: Bearer <token>
+
+alt token invalid or expired
+  Users --> RF005 : 401
+  RF005 --> Ingress : 401
+  Ingress --> User : 401
+else token valid
+  Users --> RF005 : 200 {id, username, ...}
+
+  ' ---------- Post existence check ----------
+  RF005 -> Posts : GET /posts/{id}
+
+  alt Posts unreachable / integration failure
+    Posts --> RF005 : (timeout / 5xx)
+    RF005 --> Ingress : 503\n{"msg": "El servicio está\ntemporalmente fuera de servicio."}
+    Ingress --> User : 503
+  else post does not exist
+    Posts --> RF005 : 404
+    RF005 --> Ingress : 404 (pass through)
+    Ingress --> User : 404
+  else post exists
+    Posts --> RF005 : 200 {id, routeId, userId,\nexpireAt, plannedStartDate,\nplannedEndDate, createdAt}
+
+    alt authenticated user is not the post owner
+      RF005 --> Ingress : 403
+      Ingress --> User : 403
+    else authenticated user is the post owner
+
+      ' ---------- Route data ----------
+      RF005 -> Routes : GET /routes/{routeId}
+
+      alt Routes unreachable / integration failure
+        Routes --> RF005 : (timeout / 5xx)
+        RF005 --> Ingress : 503\n{"msg": "El servicio está\ntemporalmente fuera de servicio."}
+        Ingress --> User : 503
+      else route data retrieved
+        Routes --> RF005 : 200 {id, flightId, origin,\ndestiny, bagCost}
+
+        ' ---------- Offers for this post ----------
+        RF005 -> Offers : GET /offers?post={id}
+
+        alt Offers unreachable / integration failure
+          Offers --> RF005 : (timeout / 5xx)
+          RF005 --> Ingress : 503\n{"msg": "El servicio está\ntemporalmente fuera de servicio."}
+          Ingress --> User : 503
+        else offers retrieved (zero or more)
+          Offers --> RF005 : 200 [offer1, offer2, ...]
+
+          ' ---------- Score lookup per offer (resilient) ----------
+          loop for each offer
+            RF005 -> Scores : GET /scores?offerId={offer.id}
+
+            alt Scores unreachable / score not found for this offer
+              Scores --> RF005 : (timeout / 5xx / 404)
+              note right of RF005
+                Resilience requirement:
+                a missing/unavailable score for
+                ONE offer does not fail the whole
+                request. This offer's score is
+                set to null and the loop continues.
+              end note
+              RF005 -> RF005 : set offer.score = null
+            else score found
+              Scores --> RF005 : 200 {offerId, score}
+              RF005 -> RF005 : set offer.score = value
+            end
+          end
+
+          RF005 -> RF005 : sort offers descending by score\n(null-score offers ordered per\nteam's own tie-breaking rule)
+
+          RF005 --> Ingress : 200\n{"data": {id, expireAt, route: {...},\nplannedStartDate, plannedEndDate,\ncreatedAt, offers: [...sorted]}}
+          Ingress --> User : 200
+        end
+      end
+    end
+  end
+end
+
+@enduml
