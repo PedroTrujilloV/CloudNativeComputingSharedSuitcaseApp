@@ -1,0 +1,111 @@
+@startuml rf003-sequence
+
+title RF-003 - Create Post (with exception flows)
+
+actor "User" as User
+participant "Ingress" as Ingress
+participant "rf003_create_post_app" as RF003
+participant "users_app" as Users
+participant "routes_app" as Routes
+participant "posts_app" as Posts
+
+User -> Ingress : POST /rf003/posts\nAuthorization: Bearer <token>\n{flightId, expireAt, plannedStartDate,\nplannedEndDate, origin, destiny, bagCost}
+Ingress -> RF003 : forward request
+
+' ---------- Request validation ----------
+alt missing/malformed required field
+  RF003 --> Ingress : 400
+  Ingress --> User : 400
+else body is well-formed
+  ' ---------- Authentication ----------
+  RF003 -> Users : GET /users/me\nAuthorization: Bearer <token>
+
+  alt token missing
+    Users --> RF003 : 403
+    RF003 --> Ingress : 403
+    Ingress --> User : 403
+  else token invalid or expired
+    Users --> RF003 : 401
+    RF003 --> Ingress : 401
+    Ingress --> User : 401
+  else token valid
+    Users --> RF003 : 200 {id, username, ...}
+
+    ' ---------- Route resolution ----------
+    RF003 -> Routes : GET /routes?flight={flightId}
+
+    alt Routes unreachable / integration failure
+      Routes --> RF003 : (timeout / 5xx)
+      RF003 --> Ingress : 503\n{"msg": "El servicio está\ntemporalmente fuera de servicio."}
+      Ingress --> User : 503
+    else Routes reachable
+      Routes --> RF003 : 200 [] or 200 [route]
+
+      alt route does not exist for flightId
+        RF003 -> Routes : POST /routes\n{flightId, sourceAirportCode, sourceCountry,\ndestinyAirportCode, destinyCountry,\nbagCost, plannedStartDate, plannedEndDate}
+
+        alt plannedStartDate in the past / dates not consecutive
+          Routes --> RF003 : 412\n{"msg": "Las fechas del trayecto\nno son válidas"}
+          RF003 --> Ingress : 412 (pass through)
+          Ingress --> User : 412
+        else Routes unreachable / integration failure
+          Routes --> RF003 : (timeout / 5xx)
+          RF003 --> Ingress : 503\n{"msg": "El servicio está\ntemporalmente fuera de servicio."}
+          Ingress --> User : 503
+        else route created successfully
+          Routes --> RF003 : 201 {id, createdAt}
+        end
+
+      else route already exists
+        note right of RF003
+          Submitted route field values
+          are discarded; the existing
+          route is reused as-is.
+        end note
+      end
+
+      ' ---------- Post expireAt validation ----------
+      alt expireAt not in the future, or after plannedStartDate
+        RF003 --> Ingress : 412\n{"msg": "La fecha expiración\nno es válida"}
+        Ingress --> User : 412
+      else expireAt valid
+
+        ' ---------- Duplicate post check ----------
+        RF003 -> Posts : GET /posts?route={routeId}&owner={userId}
+
+        alt user already has a post for this route
+          Posts --> RF003 : 200 [existingPost]
+          RF003 --> Ingress : 412\n{"msg": "El usuario ya tiene una\npublicación para la misma fecha"}
+          Ingress --> User : 412
+        else no existing post for this route/user
+          Posts --> RF003 : 200 []
+
+          ' ---------- Post creation ----------
+          RF003 -> Posts : POST /posts\n{routeId, userId, expireAt}
+
+          alt Posts unreachable / integration failure
+            Posts --> RF003 : (timeout / 5xx)
+            note right of RF003
+              Consistency requirement:
+              if the route was newly created
+              in this flow and the post creation
+              fails, the orchestrator must
+              apply a compensating action
+              (e.g. delete the just-created route)
+              or the design must guarantee no
+              orphaned route is left behind.
+            end note
+            RF003 --> Ingress : 503\n{"msg": "El servicio está\ntemporalmente fuera de servicio."}
+            Ingress --> User : 503
+          else post created successfully
+            Posts --> RF003 : 201 {id, userId, createdAt}
+            RF003 --> Ingress : 201\n{"data": {id, userId, createdAt, expireAt,\n"route": {id, createdAt}}, "msg": "..."}
+            Ingress --> User : 201
+          end
+        end
+      end
+    end
+  end
+end
+
+@enduml

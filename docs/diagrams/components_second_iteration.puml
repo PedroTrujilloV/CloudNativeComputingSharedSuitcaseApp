@@ -1,0 +1,50 @@
+@startuml components_second_iteration
+
+actor "User" as User
+
+frame "env" {
+
+  component "rf003_create_post_app" as RF003App <<component>>
+  component "rf004_create_offer_app" as RF004App <<component>>
+  component "rf005_query_post_app" as RF005App <<component>>
+
+  component "users_app" as UsersApp <<component>>
+  component "posts_app" as PostsApp <<component>>
+  component "offers_app" as OffersApp <<component>>
+  component "routes_app" as RoutesApp <<component>>
+  component "scores_app" as ScoresApp <<component>>
+
+  database "shared_db" as SharedDb
+
+  UsersApp --> SharedDb
+  PostsApp --> SharedDb
+  OffersApp --> SharedDb
+  RoutesApp --> SharedDb
+  ScoresApp --> SharedDb
+
+  RF003App --> UsersApp
+  RF003App --> RoutesApp
+  RF003App --> PostsApp
+
+  RF004App --> UsersApp
+  RF004App --> PostsApp
+  RF004App --> RoutesApp
+  RF004App --> OffersApp
+  RF004App --> ScoresApp
+
+  RF005App --> UsersApp
+  RF005App --> PostsApp
+  RF005App --> RoutesApp
+  RF005App --> OffersApp
+  RF005App --> ScoresApp
+}
+
+User ..> RF003App
+User ..> RF004App
+User ..> RF005App
+User ..> UsersApp
+User ..> PostsApp
+User ..> OffersApp
+User ..> RoutesApp
+
+@enduml
