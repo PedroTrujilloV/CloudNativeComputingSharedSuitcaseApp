@@ -276,7 +276,7 @@ Each application runs independently. Refer to the `README.md` in each folder for
 - [Routes App](apps/routes_app.md)
 - [Posts App](apps/posts_app.md)
 - [Offers App](apps/offers_app.md)
-
+- [Scores App](apps/scores_app.md)
 
 ## Run with Docker
 

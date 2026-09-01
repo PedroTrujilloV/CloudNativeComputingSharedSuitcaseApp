@@ -62,5 +62,6 @@ docscopy:
 	@cp routes_app/README.md docs/apps/routes_app.md
 	@cp posts_app/README.md docs/apps/posts_app.md
 	@cp offers_app/README.md docs/apps/offers_app.md
+	@cp scores_app/README.md docs/apps/scores_app.md
 
 	@echo "Application documentation copied successfully."
