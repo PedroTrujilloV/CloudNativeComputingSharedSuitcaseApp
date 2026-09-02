@@ -8,6 +8,7 @@
 ├── routes_app/         # Route management application
 ├── posts_app/          # Post management application
 ├── offers_app/         # Offer management application
+├── scores_app/         # Scores management application
 ├── k8s/                # Kubernetes deployment manifests
 ├── docs/               # Technical documentation as code
 │   └── diagrams/       # PlantUML diagrams (entities, components, deployment, networks)
@@ -19,14 +20,15 @@ More detailed information in the [Development View](./docs/development-view.md)
 and [Technical Documentation](./docs/README.md)
 
 
-# Deployment Guide - Delivery 1
+# Deployment Guide
 
-This guide describes, step by step, how to fully deploy the project: the four applications (users, posts, routes, offers), their databases, the generation of the technical documentation (PlantUML diagrams), and the final validation on Minikube.
+This guide describes, step by step, how to fully deploy the project: the applications (users, posts, routes, offers, scores), their databases, the generation of the technical documentation (PlantUML diagrams), and the final validation on Minikube.
 
 ## Table of Contents
 
-- [Deployment Guide - Delivery 1](#deployment-guide---delivery-1)
+- [Deployment Guide](#deployment-guide)
   - [Table of Contents](#table-of-contents)
+  - [Delivery 2 (Entrega 2) Changes](#delivery-2-entrega-2-changes)
   - [Prerequisites](#prerequisites)
   - [Step 1: Clone the Repository](#step-1-clone-the-repository)
   - [Step 2: Verify config.yaml](#step-2-verify-configyaml)
@@ -43,6 +45,26 @@ This guide describes, step by step, how to fully deploy the project: the four ap
   - [Step 13: Run the Validation Pipelines](#step-13-run-the-validation-pipelines)
   - [Step 14: Cleanup (Optional)](#step-14-cleanup-optional)
   - [Troubleshooting Common Issues](#troubleshooting-common-issues)
+
+## Delivery 2 (Entrega 2) Changes
+
+Entrega 2 extends the Delivery 1 system with three new elements:
+
+* **`scores_app`:** a new microservice that persists a Score (Utilidad) value
+  per offer. It is written by the RF-004 orchestrator and read (null-safely)
+  by the RF-005 orchestrator. Its image is `scores-app:v0.0.0` per
+  `config.yaml`.
+* **Orchestrators:** `rf003_create_post_app`, `rf004_create_offer_app`, and
+  `rf005_query_post_app` expose the client-facing endpoints for requirements
+  RF-003, RF-004, and RF-005, coordinating calls to the existing services.
+* **Shared database:** in the cloud deployment (Terraform stacks) all
+  applications share a single PostgreSQL instance, with per-app schema and
+  role isolation. The local Minikube model in this guide keeps one database
+  per application for isolation.
+
+The rest of the guide below documents the Delivery 1 local deployment model;
+the `scores_app` build/run steps follow the same pattern as the other
+applications (see its [README](./scores_app/README.md)).
 
 ## Prerequisites
 
@@ -73,7 +95,7 @@ cd <repository-name>
 
 ## Step 2: Verify config.yaml
 
-Confirm that the `config.yaml` file at the repository root has been properly completed: team name, members, board link, documentation link, and the data (`folder`, `image_name`, `image_tag`, `authors`) for each of the four applications.
+Confirm that the `config.yaml` file at the repository root has been properly completed: team name, members, board link, documentation link, and the data (`folder`, `image_name`, `image_tag`, `authors`) for each of the five applications (`users_app`, `posts_app`, `routes_app`, `offers_app`, `scores_app`) and the three orchestrators.
 
 ```bash
 cat config.yaml
@@ -96,11 +118,13 @@ docker run --rm -e PLANTUML_LIMIT_SIZE=8192 \
   plantuml/plantuml:latest "**.puml"
 ```
 
-Verify that the four diagrams were generated:
+Verify that the diagrams were generated:
 
 ```bash
 ls docs/diagrams/*.png
-# Should show: entities.png, components.png, deployment.png, networks.png
+# Should show at least: entities.png, components.png, deployment.png, networks.png
+# plus the Entrega 2 diagrams: components/deployment/networks_second_iteration.png
+# and rf003/rf004/rf005-sequence.png
 ```
 
 ## Step 4: Run Each Application Locally (Optional, for Development)
@@ -111,12 +135,13 @@ For development and quick testing before containerization, each application can 
 * [Posts README](./posts_app/README.md)
 * [Routes README](./routes_app/README.md)
 * [Offers README](./offers_app/README.md)
+* [Scores README](./scores_app/README.md)
 
 Each application requires a PostgreSQL database available on port `5432` (you can start it independently with Docker during development).
 
 ## Step 5: Build the Docker Images
 
-Repeat this step for each of the four applications, using the `image_name` and `image_tag` values defined in `config.yaml`:
+Repeat this step for each of the five applications, using the `image_name` and `image_tag` values defined in `config.yaml`:
 
 ```bash
 cd users_app
@@ -134,12 +159,16 @@ cd ..
 cd offers_app
 docker build -t <offers_image_name>:<offers_image_tag> .
 cd ..
+
+cd scores_app
+docker build -t scores-app:v0.0.0 .
+cd ..
 ```
 
-Verify that all four images were built successfully:
+Verify that all five images were built successfully:
 
 ```bash
-docker images | grep -E "users|posts|routes|offers"
+docker images | grep -E "users|posts|routes|offers|scores"
 ```
 
 ## Step 6: Start Minikube
@@ -164,12 +193,13 @@ minikube image load <users_image_name>:<users_image_tag>
 minikube image load <posts_image_name>:<posts_image_tag>
 minikube image load <routes_image_name>:<routes_image_tag>
 minikube image load <offers_image_name>:<offers_image_tag>
+minikube image load scores-app:v0.0.0
 ```
 
 Verify that the images are available inside Minikube:
 
 ```bash
-minikube image ls | grep -E "users|posts|routes|offers"
+minikube image ls | grep -E "users|posts|routes|offers|scores"
 ```
 
 ## Step 8: Deploy the Kubernetes Manifests
@@ -179,6 +209,11 @@ Apply all declarative manifests located in `k8s/` (Deployments, Services, `empty
 ```bash
 kubectl apply -f k8s/
 ```
+
+> Note: the `k8s/` folder currently contains the manifests of the four
+> Delivery 1 applications. The `scores_app` manifest is added in a follow-up
+> task of Epic B; until then the local deployment covers the four
+> applications above.
 
 ## Step 9: Verify the Deployment
 
@@ -233,12 +268,17 @@ kubectl exec -it <users-app-pod-name> -- sh -c "nc -zv posts-db-service 5432"
 
 ## Step 13: Run the Validation Pipelines
 
-Before creating the release, manually run the provided pipelines (without modifying them) from the **Actions** tab of the repository on GitHub:
+Before creating the release, manually run the provided pipelines (without modifying them) from the **Actions** tab of the repository on GitHub. For Entrega 1:
 
-* `Evaluador Documentación Entrega 1` (`ci_evaluador_docs.yml`)
-* `Evaluador Implementación Entrega 1` (`ci_evaluador_entrega1_k8s.yml`)
+* `Entrega 1 - Evaluador Documentación` (`ci_entrega1_evaluador_docs.yml`)
+* `Entrega 1 - Evaluador Implementación` (`ci_entrega1_evaluador_k8s.yml`)
 
-Confirm that both finish successfully ( passed ✅ ) before continuing.
+For Entrega 2 (cloud deployment via Terraform stacks and ECR images):
+
+* `Entrega 2 - Deploy` (`ci_entrega2_deploy.yml`)
+* `Entrega 2 - Destroy` (`ci_entrega2_destroy.yml`, manual and destructive)
+
+Confirm that they finish successfully (passed ✅) before continuing.
 
 Additionally, confirm that the unit testing pipeline (`ci_evaluador_unit.yml`) passes correctly on every push/PR to `main`, with a minimum coverage of 70% per application.
 

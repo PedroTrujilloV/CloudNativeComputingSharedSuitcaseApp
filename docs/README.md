@@ -1,7 +1,11 @@
 
-# Project Delivery 1 - Shared Suitcase Package Delivery Platform (P2P Broker)
+# Project Delivery 2 - Shared Suitcase Package Delivery Platform (P2P Broker)
 
-This project implements the first delivery of a brokerage platform (broker) for collaborative package delivery. The system consists of four independent applications (users, routes, posts, and offers), each with its own PostgreSQL database, deployed in containers and locally orchestrated using Kubernetes (Minikube).
+This project implements a brokerage platform (broker) for collaborative package delivery. Delivery 1 consisted of four independent applications (users, routes, posts, and offers), each with its own PostgreSQL database, deployed in containers and locally orchestrated using Kubernetes (Minikube). Delivery 2 (Entrega 2) extends the system with:
+
+* **`scores_app`** a fifth microservice that persists a Score (Utilidad) value per offer (written by RF-004, read null-safely by RF-005).
+* **Three orchestrators** — `rf003_create_post_app`, `rf004_create_offer_app`, and `rf005_query_post_app`, which expose the client-facing endpoints for requirements RF-003, RF-004, and RF-005 and coordinate calls to the existing services.
+* **A shared PostgreSQL instance** in the cloud deployment (single RDS with per-app schema and role isolation), provisioned through Terraform stacks and deployed via the `ci_entrega2_deploy.yml` pipeline, which builds and pushes the images to ECR.
 
 ## Page
 
@@ -9,15 +13,17 @@ This project implements the first delivery of a brokerage platform (broker) for 
 
 By using this project, you will find:
 
-* Four independent REST microservices, each exclusively responsible for its own data.
+* Five independent REST microservices (users, routes, posts, offers, scores), each exclusively responsible for its own data.
+* Three orchestrator services (RF-003, RF-004, RF-005) that coordinate the microservices behind a single client-facing endpoint per requirement.
 * Network isolation between each application and its database through Kubernetes Network Policies.
 * Authentication based on random tokens (not JWT) for user management.
+* A shared PostgreSQL instance in the cloud deployment, with per-app schema and role isolation.
 * Technical documentation as code, with architecture views modeled in PlantUML and published through GitHub Pages.
 * GitHub Actions pipelines to validate deployment, network policies, API contracts, and unit test coverage.
 
 ## Table of Contents
 
-- [Project Delivery 1 - Shared Suitcase Package Delivery Platform (P2P Broker)](#project-delivery-1---shared-suitcase-package-delivery-platform-p2p-broker)
+- [Project Delivery 2 - Shared Suitcase Package Delivery Platform (P2P Broker)](#project-delivery-2---shared-suitcase-package-delivery-platform-p2p-broker)
   - [Page](#page)
   - [Table of Contents](#table-of-contents)
   - [Team](#team)
@@ -46,11 +52,7 @@ By using this project, you will find:
 
 ## Team
 
-- Agustín Serrano: a.serranor@uniandes.edu.co
 - Pedro Trujillo:  pe.trujillo@uniandes.edu.co
-- Camilo Daza:     ca.dazab1@uniandes.edu.co
-- Juan Roncancio:  j.roncancioc@uniandes.edu.co
-
 
 ## Architectural Views
 
@@ -213,8 +215,8 @@ docker run <image_name>:<image_tag>
 
 In this project, Minikube is used to deploy and validate the complete system locally, including:
 
-* Four applications.
-* Four PostgreSQL databases.
+* Five applications (users, routes, posts, offers, scores).
+* Five PostgreSQL databases (one per application in the local model).
 * Kubernetes Services.
 * Network Policies.
 * Application-to-database communication.
@@ -329,10 +331,14 @@ docker run --rm -e PLANTUML_LIMIT_SIZE=8192 -v "$(pwd)/docs/diagrams:/workspace"
 Development documentation can be found at:
 
 - [Development View](./development-view.md)
+- [Information View](./information-view.md)
+- [Functional View](./functional-view.md)
+- [Deployment View](./deployment-view.md)
+- [Solution Patterns (RF-003, RF-004, RF-005)](./solution-patterns.md)
 
 ## Contributing
 
-Work is managed through the team's repository [Kanban board](https://github.com/orgs/MISW-4301-Desarrollo-Apps-en-la-Nube/projects/330/views/2).
+Work is managed through the team's repository [Kanban board](https://github.com/orgs/MISW-4301-Desarrollo-Apps-en-la-Nube/projects/370/views/1).
 
 Each team member is responsible for an application, including its code, tests, `Dockerfile`, `k8s/` manifests, and associated documentation.
 

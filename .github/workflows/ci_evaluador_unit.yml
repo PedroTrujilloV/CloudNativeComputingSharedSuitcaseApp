@@ -124,6 +124,35 @@ jobs:
           cd offers_app
           poetry run pytest --cov=src --cov-fail-under=70 -v
 
+  scores_app:
+    runs-on: ubuntu-latest
+    name: Verify scores_app
+    strategy:
+      fail-fast: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Poetry
+        uses: abatilo/actions-poetry@v3
+        with:
+          poetry-version: 2.1.1
+
+      - name: Install dependencies
+        run: |
+          cd scores_app
+          poetry install
+
+      - name: Run unit tests with coverage
+        run: |
+          cd scores_app
+          poetry run pytest --cov=src --cov-fail-under=70 -v
+
 
 # Commented out because pets_app is only an example
   # pets_app:

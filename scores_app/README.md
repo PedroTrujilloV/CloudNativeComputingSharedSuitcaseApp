@@ -268,7 +268,7 @@ SCORES_INTEGRATION_DATABASE_URL=postgresql+psycopg://scores_user:***@localhost:5
 A multi-stage image is provided that builds with Poetry and ships a lean
 runtime with a non-root user. The image name/tag matches `config.yaml`'s
 `scores_app` entry: `image_name: scores-app`, `image_tag: v0.0.0`
-(i.e. `scores-app:v0.0.0`), ready for ECR publication.
+(that is `scores-app:v0.0.0`), ready for ECR publication.
 
 ```bash
 docker build -t scores-app:v0.0.0 . # Create the scores-app image
