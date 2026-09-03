@@ -57,6 +57,12 @@ Entrega 2 extends the Delivery 1 system with three new elements:
 * **Orchestrators:** `rf003_create_post_app`, `rf004_create_offer_app`, and
   `rf005_query_post_app` expose the client-facing endpoints for requirements
   RF-003, RF-004, and RF-005, coordinating calls to the existing services.
+  Each orchestrator is stateless (no database of its own), uses Clean
+  Architecture internally, and handles downstream failures: integration errors
+  return HTTP 503 with a standard Spanish message; business rejections from
+  downstream services pass through unchanged (HTTP 412 for example invalid
+  dates or duplicate posts). The RF-003 orchestrator additionally implements
+  saga compensation to avoid orphaned data when the post creation fails mid-flow.
 * **Shared database:** in the cloud deployment (Terraform stacks) all
   applications share a single PostgreSQL instance, with per-app schema and
   role isolation. The local Minikube model in this guide keeps one database
@@ -136,6 +142,7 @@ For development and quick testing before containerization, each application can 
 * [Routes README](./routes_app/README.md)
 * [Offers README](./offers_app/README.md)
 * [Scores README](./scores_app/README.md)
+* [RF-003 README](./rf003_create_post_app/README.md)
 
 Each application requires a PostgreSQL database available on port `5432` (you can start it independently with Docker during development).
 

@@ -86,15 +86,16 @@ else body is well-formed
           alt Posts unreachable / integration failure
             Posts --> RF003 : (timeout / 5xx)
             note right of RF003
-              Consistency requirement:
+              Compensating action (saga):
               if the route was newly created
-              in this flow and the post creation
-              fails, the orchestrator must
-              apply a compensating action
-              (e.g. delete the just-created route)
-              or the design must guarantee no
-              orphaned route is left behind.
+              in this flow, the orchestrator
+              deletes it so no orphaned
+              route is left behind.
+              A pre-existing route is never
+              deleted.
             end note
+            RF003 -> Routes : DELETE /routes/{routeId}\n(only if the route was created in this flow)
+            Routes --> RF003 : 200 / 404
             RF003 --> Ingress : 503\n{"msg": "El servicio está\ntemporalmente fuera de servicio."}
             Ingress --> User : 503
           else post created successfully

@@ -13,6 +13,50 @@ Here you go:
 | **Disadvantaged Quality Attributes** | Availability (the request now depends on the availability of two downstream services instead of one—one link failing fails the whole operation, mitigated by returning 503 rather than silently succeeding); Latency (sequential calls to Routes then Posts add round-trip time compared to a single local write); Consistency complexity (without a distributed transaction, a partial failure requires explicit compensating logic or a documented acceptance of eventual/best-effort consistency, adding design and testing burden) |
 | **Components Involved** | `rf003_create_post_app` (RF003App), `users_app`, `routes_app`, `posts_app`, `ingress` (Ingress) |
 
+#### RF-003 Consistency Strategy (documented per Epic H)
+
+The RF-003 flow performs two writes on two independently owned stores
+(Routes, Posts) with no distributed transaction. The team's definition of
+**"the databases are consistent"** after the flow is:
+
+> Either both writes exist (route + post) or neither does. A failed request
+> must not leave behind an *orphaned* route that is a route created by that
+> request that has no post because the post creation failed mid-flow.
+
+The team chose the **compensating action** option (saga compensation) over a
+"no orphaned state possible" redesign, because the route find or create
+order (route first, post second) is dictated by the data dependency (a post
+references a route id) and the Routes service already exposes
+`DELETE /routes/{id}` as its public API so compensation reuses the owning
+service's own contract (no cross-app DB access, no new endpoint).
+
+Rules implemented in `rf003_create_post_app`:
+
+1. **Only integration failures (503-class) trigger compensation.** When the
+   post stage fails because a downstream service is unreachable or errors
+   unexpectedly *and* the route was **created by this same request**, the
+   orchestrator deletes that route (`DELETE /routes/{routeId}`) before
+   answering the client with `503 {"msg": "El servicio está temporalmente
+   fuera de servicio."}`.
+2. **Pre-existing routes are never compensated.** A route reused by `flightId`
+   is shared state: a failed post attempt must not destroy data other
+   requests (and users) depend on.
+3. **Business rejections (412) are not compensated.** An `expireAt` or
+   duplicate rejection passes through untouched; the newly created route
+   remains because it is a legitimate, reusable entity the next request
+   with the same `flightId` finds and reuses it (the documented happy path).
+4. **A failed compensation is logged, not fatal.** If the Routes service is
+   also down, the compensating delete cannot be confirmed; the original 503
+   is still returned, and the event is logged (see Observability below). The
+   residual orphan is *safe*: it is a valid route that the next request for
+   the same `flightId` will reuse, so it self-heals without data corruption.
+
+**Observability:** the orchestrator logs, at INFO/WARNING/ERROR levels: route
+resolution (created vs reused), post-stage integration failures, the
+compensating action and its outcome, and compensation failures so a partial
+failure during grading/demo can be traced from the container logs
+(`docker logs <rf003 container>` or `kubectl logs <pod>`).
+
 ## RF-004
 
 | Aspect | Details |

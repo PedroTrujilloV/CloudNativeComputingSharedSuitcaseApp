@@ -4,7 +4,7 @@
 This project implements a brokerage platform (broker) for collaborative package delivery. Delivery 1 consisted of four independent applications (users, routes, posts, and offers), each with its own PostgreSQL database, deployed in containers and locally orchestrated using Kubernetes (Minikube). Delivery 2 (Entrega 2) extends the system with:
 
 * **`scores_app`** a fifth microservice that persists a Score (Utilidad) value per offer (written by RF-004, read null-safely by RF-005).
-* **Three orchestrators** — `rf003_create_post_app`, `rf004_create_offer_app`, and `rf005_query_post_app`, which expose the client-facing endpoints for requirements RF-003, RF-004, and RF-005 and coordinate calls to the existing services.
+* **Three orchestrator services** (`rf003_create_post_app`, `rf004_create_offer_app`, and `rf005_query_post_app`) that expose the client-facing endpoints for requirements RF-003, RF-004, and RF-005. Each orchestrator coordinates calls to the existing microservices while handling consistency (for example, RF-003 uses saga compensation to avoid orphaned routes when a downstream service fails mid-flow) and error propagation (integration failures return 503; business rejections pass through 412 unchanged).
 * **A shared PostgreSQL instance** in the cloud deployment (single RDS with per-app schema and role isolation), provisioned through Terraform stacks and deployed via the `ci_entrega2_deploy.yml` pipeline, which builds and pushes the images to ECR.
 
 ## Page
@@ -14,7 +14,7 @@ This project implements a brokerage platform (broker) for collaborative package 
 By using this project, you will find:
 
 * Five independent REST microservices (users, routes, posts, offers, scores), each exclusively responsible for its own data.
-* Three orchestrator services (RF-003, RF-004, RF-005) that coordinate the microservices behind a single client-facing endpoint per requirement.
+* Three orchestrator services (RF-003, RF-004, RF-005) that coordinate the microservices behind a single client-facing endpoint per requirement. Each orchestrator handles consistency (for example, RF-003 uses saga compensation to avoid orphaned routes when a downstream service fails mid-flow) and error propagation (integration failures return 503; business rejections pass through 412 unchanged).
 * Network isolation between each application and its database through Kubernetes Network Policies.
 * Authentication based on random tokens (not JWT) for user management.
 * A shared PostgreSQL instance in the cloud deployment, with per-app schema and role isolation.
@@ -62,7 +62,15 @@ System architecture documentation can be found at:
 - [Functional View](./functional-view.md)
 - [Deployment View](./deployment-view.md)
 
-* Requirements
+### Consistency patterns for orchestrators
+
+Each orchestrator has a documented consistency strategy (see [Solution Patterns](./solution-patterns.md)):
+
+* **RF-003** uses saga compensation to guarantee that a failed request never leaves an orphaned route. If the post creation fails with an integration error and the route was created in this flow, the orchestrator deletes it via `DELETE /routes/{id}`. Business rejections (412) are passed through unchanged.
+* **RF-004** writes a score after creating an offer (documented consistency rules for that requirement).
+* **RF-005** reads data from multiple services and handles null values safely (for example, missing scores do not cause failures).
+
+### Requirements
   * Requirement RF-003
     * [Solution pattern](./solution-patterns.md#rf-003). 
     * [Sequence View](./rf003-sequence-view.md). 
@@ -279,6 +287,7 @@ Each application runs independently. Refer to the `README.md` in each folder for
 - [Posts App](apps/posts_app.md)
 - [Offers App](apps/offers_app.md)
 - [Scores App](apps/scores_app.md)
+- [RF-003 Orchestation App](apps/rf003_create_post_app.md)
 
 ## Run with Docker
 

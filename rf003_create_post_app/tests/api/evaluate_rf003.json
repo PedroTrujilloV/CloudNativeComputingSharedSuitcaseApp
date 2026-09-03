@@ -1,0 +1,555 @@
+{
+  "info": {
+    "_postman_id": "9f2c1a4e-7b3d-4e5a-8c6f-0a1b2c3d4e5f",
+    "name": "evaluate_rf003",
+    "description": "Collection to verify the RF-003 orchestrator (POST /rf003/posts): auth + body validation gate and the core orchestration (route find-or-create, expireAt validation, duplicate-post rule, 201 shape). Run the Setup folder first to create a user and obtain a valid token. A pre-request script generates a unique flightId per run so the happy path and duplicate scenarios are repeatable.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8001", "type": "string" },
+    { "key": "usersUrl", "value": "http://localhost:8000", "type": "string" },
+    { "key": "token", "value": "", "type": "string" },
+    { "key": "flightId", "value": "", "type": "string" },
+    { "key": "pastFlightId", "value": "", "type": "string" }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "exec": [
+          "const ts = Date.now().toString(36).toUpperCase();",
+          "pm.collectionVariables.set(\"flightId\", \"PM\" + ts);",
+          "pm.collectionVariables.set(\"pastFlightId\", \"PAST\" + ts);"
+        ],
+        "type": "text/javascript",
+        "packages": {}
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Setup",
+      "item": [
+        {
+          "name": "Create user",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201 and user was created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"rf003tester\",\n  \"password\": \"Secret123!\",\n  \"email\": \"rf003tester@example.com\",\n  \"dni\": \"12345678\",\n  \"fullName\": \"RF003 Tester\",\n  \"phoneNumber\": \"3001112233\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{usersUrl}}/users",
+              "host": ["{{usersUrl}}"],
+              "path": ["users"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Authenticate (save token)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 and token was issued\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    let body = pm.response.json();",
+                  "    pm.expect(body).to.have.property(\"token\");",
+                  "    pm.collectionVariables.set(\"token\", body.token);",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"rf003tester\",\n  \"password\": \"Secret123!\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{usersUrl}}/users/auth",
+              "host": ["{{usersUrl}}"],
+              "path": ["users", "auth"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "ping",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200 and body is pong\", function () {",
+              "    pm.response.to.have.status(200);",
+              "    pm.expect(pm.response.text()).to.eq(\"pong\");",
+              "});"
+            ],
+            "type": "text/javascript",
+            "packages": {}
+          }
+        }
+      ],
+      "request": {
+        "auth": { "type": "noauth" },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/rf003/ping",
+          "host": ["{{baseUrl}}"],
+          "path": ["rf003", "ping"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Missing token -> 403",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 403 with empty body\", function () {",
+              "    pm.response.to.have.status(403);",
+              "    pm.expect(pm.response.text()).to.eq(\"\");",
+              "});"
+            ],
+            "type": "text/javascript",
+            "packages": {}
+          }
+        }
+      ],
+      "request": {
+        "auth": { "type": "noauth" },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"flightId\": \"{{flightId}}\",\n  \"expireAt\": \"2026-09-15T10:00:00\",\n  \"plannedStartDate\": \"2026-10-01T10:00:00\",\n  \"plannedEndDate\": \"2026-10-02T10:00:00\",\n  \"origin\": { \"airportCode\": \"BOG\", \"country\": \"Colombia\" },\n  \"destiny\": { \"airportCode\": \"MAD\", \"country\": \"Spain\" },\n  \"bagCost\": 350\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/rf003/posts",
+          "host": ["{{baseUrl}}"],
+          "path": ["rf003", "posts"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Invalid token -> 401",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 401 with empty body\", function () {",
+              "    pm.response.to.have.status(401);",
+              "    pm.expect(pm.response.text()).to.eq(\"\");",
+              "});"
+            ],
+            "type": "text/javascript",
+            "packages": {}
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "not-a-valid-token", "type": "string" }]
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"flightId\": \"{{flightId}}\",\n  \"expireAt\": \"2026-09-15T10:00:00\",\n  \"plannedStartDate\": \"2026-10-01T10:00:00\",\n  \"plannedEndDate\": \"2026-10-02T10:00:00\",\n  \"origin\": { \"airportCode\": \"BOG\", \"country\": \"Colombia\" },\n  \"destiny\": { \"airportCode\": \"MAD\", \"country\": \"Spain\" },\n  \"bagCost\": 350\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/rf003/posts",
+          "host": ["{{baseUrl}}"],
+          "path": ["rf003", "posts"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Missing required field -> 400",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 400 with empty body\", function () {",
+              "    pm.response.to.have.status(400);",
+              "    pm.expect(pm.response.text()).to.eq(\"\");",
+              "});"
+            ],
+            "type": "text/javascript",
+            "packages": {}
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"expireAt\": \"2026-09-15T10:00:00\",\n  \"plannedStartDate\": \"2026-10-01T10:00:00\",\n  \"plannedEndDate\": \"2026-10-02T10:00:00\",\n  \"origin\": { \"airportCode\": \"BOG\", \"country\": \"Colombia\" },\n  \"destiny\": { \"airportCode\": \"MAD\", \"country\": \"Spain\" },\n  \"bagCost\": 350\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/rf003/posts",
+          "host": ["{{baseUrl}}"],
+          "path": ["rf003", "posts"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Malformed field -> 400",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 400 with empty body\", function () {",
+              "    pm.response.to.have.status(400);",
+              "    pm.expect(pm.response.text()).to.eq(\"\");",
+              "});"
+            ],
+            "type": "text/javascript",
+            "packages": {}
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"flightId\": \"{{flightId}}\",\n  \"expireAt\": \"not-a-date\",\n  \"plannedStartDate\": \"2026-10-01T10:00:00\",\n  \"plannedEndDate\": \"2026-10-02T10:00:00\",\n  \"origin\": { \"airportCode\": \"B\", \"country\": \"Colombia\" },\n  \"destiny\": { \"airportCode\": \"MAD\", \"country\": \"Spain\" },\n  \"bagCost\": -5\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/rf003/posts",
+          "host": ["{{baseUrl}}"],
+          "path": ["rf003", "posts"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "No body -> 400",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 400 with empty body\", function () {",
+              "    pm.response.to.have.status(400);",
+              "    pm.expect(pm.response.text()).to.eq(\"\");",
+              "});"
+            ],
+            "type": "text/javascript",
+            "packages": {}
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+        },
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/rf003/posts",
+          "host": ["{{baseUrl}}"],
+          "path": ["rf003", "posts"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Orchestration",
+      "item": [
+        {
+          "name": "Valid request -> 201 (route created + post created)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.test(\"Body has data + msg (msg is a sibling of data)\", function () {",
+                  "    let body = pm.response.json();",
+                  "    pm.expect(body).to.have.property(\"data\");",
+                  "    pm.expect(body).to.have.property(\"msg\");",
+                  "    let d = body.data;",
+                  "    pm.expect(d).to.have.property(\"id\");",
+                  "    pm.expect(d).to.have.property(\"userId\");",
+                  "    pm.expect(d).to.have.property(\"createdAt\");",
+                  "    pm.expect(d).to.have.property(\"expireAt\");",
+                  "    pm.expect(d).to.have.property(\"route\");",
+                  "    pm.expect(d.route).to.have.property(\"id\");",
+                  "    pm.expect(d.route).to.have.property(\"createdAt\");",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"flightId\": \"{{flightId}}\",\n  \"expireAt\": \"2026-09-15T10:00:00\",\n  \"plannedStartDate\": \"2026-10-01T10:00:00\",\n  \"plannedEndDate\": \"2026-10-02T10:00:00\",\n  \"origin\": { \"airportCode\": \"BOG\", \"country\": \"Colombia\" },\n  \"destiny\": { \"airportCode\": \"MAD\", \"country\": \"Spain\" },\n  \"bagCost\": 350\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/rf003/posts",
+              "host": ["{{baseUrl}}"],
+              "path": ["rf003", "posts"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Duplicate post (same user + flight) -> 412",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 412 with the duplicate message\", function () {",
+                  "    pm.response.to.have.status(412);",
+                  "    let body = pm.response.json();",
+                  "    pm.expect(body).to.deep.eq({ msg: \"El usuario ya tiene una publicación para la misma fecha\" });",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"flightId\": \"{{flightId}}\",\n  \"expireAt\": \"2026-09-15T10:00:00\",\n  \"plannedStartDate\": \"2026-10-01T10:00:00\",\n  \"plannedEndDate\": \"2026-10-02T10:00:00\",\n  \"origin\": { \"airportCode\": \"BOG\", \"country\": \"Colombia\" },\n  \"destiny\": { \"airportCode\": \"MAD\", \"country\": \"Spain\" },\n  \"bagCost\": 350\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/rf003/posts",
+              "host": ["{{baseUrl}}"],
+              "path": ["rf003", "posts"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "expireAt after plannedStartDate -> 412",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 412 with the expireAt message\", function () {",
+                  "    pm.response.to.have.status(412);",
+                  "    let body = pm.response.json();",
+                  "    pm.expect(body).to.deep.eq({ msg: \"La fecha expiración no es válida\" });",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"flightId\": \"{{flightId}}\",\n  \"expireAt\": \"2026-10-02T00:00:00\",\n  \"plannedStartDate\": \"2026-10-01T10:00:00\",\n  \"plannedEndDate\": \"2026-10-02T10:00:00\",\n  \"origin\": { \"airportCode\": \"BOG\", \"country\": \"Colombia\" },\n  \"destiny\": { \"airportCode\": \"MAD\", \"country\": \"Spain\" },\n  \"bagCost\": 350\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/rf003/posts",
+              "host": ["{{baseUrl}}"],
+              "path": ["rf003", "posts"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "expireAt in the past -> 412",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 412 with the expireAt message\", function () {",
+                  "    pm.response.to.have.status(412);",
+                  "    let body = pm.response.json();",
+                  "    pm.expect(body).to.deep.eq({ msg: \"La fecha expiración no es válida\" });",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"flightId\": \"{{flightId}}\",\n  \"expireAt\": \"2020-01-01T00:00:00\",\n  \"plannedStartDate\": \"2026-10-01T10:00:00\",\n  \"plannedEndDate\": \"2026-10-02T10:00:00\",\n  \"origin\": { \"airportCode\": \"BOG\", \"country\": \"Colombia\" },\n  \"destiny\": { \"airportCode\": \"MAD\", \"country\": \"Spain\" },\n  \"bagCost\": 350\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/rf003/posts",
+              "host": ["{{baseUrl}}"],
+              "path": ["rf003", "posts"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Route dates in the past -> 412",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 412 with the route dates message\", function () {",
+                  "    pm.response.to.have.status(412);",
+                  "    let body = pm.response.json();",
+                  "    pm.expect(body).to.deep.eq({ msg: \"Las fechas del trayecto no son válidas\" });",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"flightId\": \"{{pastFlightId}}\",\n  \"expireAt\": \"2026-09-15T10:00:00\",\n  \"plannedStartDate\": \"2020-01-01T10:00:00\",\n  \"plannedEndDate\": \"2020-01-02T10:00:00\",\n  \"origin\": { \"airportCode\": \"BOG\", \"country\": \"Colombia\" },\n  \"destiny\": { \"airportCode\": \"MAD\", \"country\": \"Spain\" },\n  \"bagCost\": 350\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/rf003/posts",
+              "host": ["{{baseUrl}}"],
+              "path": ["rf003", "posts"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "(Optional) Downstream service down -> 503 (stop posts-app first)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 503 with the standard message\", function () {",
+                  "    pm.response.to.have.status(503);",
+                  "    let body = pm.response.json();",
+                  "    pm.expect(body).to.deep.eq({ msg: \"El servicio está temporalmente fuera de servicio.\" });",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"flightId\": \"{{flightId}}\",\n  \"expireAt\": \"2026-09-15T10:00:00\",\n  \"plannedStartDate\": \"2026-10-01T10:00:00\",\n  \"plannedEndDate\": \"2026-10-02T10:00:00\",\n  \"origin\": { \"airportCode\": \"BOG\", \"country\": \"Colombia\" },\n  \"destiny\": { \"airportCode\": \"MAD\", \"country\": \"Spain\" },\n  \"bagCost\": 350\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/rf003/posts",
+              "host": ["{{baseUrl}}"],
+              "path": ["rf003", "posts"]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
