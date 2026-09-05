@@ -1,0 +1,36 @@
+# NetworkPolicy for scores-app and scores-db isolation
+#
+# Enforces that only scores-app pods can connect to scores-db on port 5432.
+# All other ingress traffic to scores-db is denied.
+#
+# NOTE: NetworkPolicies require a CNI that enforces them (Calico).
+# Vanilla minikube uses Kindnet and does NOT enforce NetworkPolicies.
+# For production (AWS EKS), the Calico CNI is enabled by default.
+---
+# ============================================================
+# NetworkPolicy
+#
+# Only scores-app pods can connect to scores-db.
+# All other ingress traffic to scores-db is denied.
+# ============================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: scores-network
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      app: scores-db
+
+  policyTypes:
+    - Ingress
+
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: scores-app
+      ports:
+        - protocol: TCP
+          port: 5432

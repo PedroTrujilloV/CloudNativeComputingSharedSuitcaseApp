@@ -1,6 +1,24 @@
 # Kubernetes deployment for users_app
 # Minikube: app + PostgreSQL (ephemeral emptyDir)
 # Namespace: default
+# DB credentials: managed via AWS Secrets Manager by External Secrets Operator
+# (see k8s/secrets.yaml for local minikube values;
+#  see k8s/secrets-aws-shared-db.yaml for AWS production model below)
+#
+# ENVIRONMENT NOTES:
+#
+# Local Minikube (Entrega 1 model):
+#   Each app has its own DB pod. Apply k8s/secrets.yaml and all -app.yaml files.
+#   DB_HOST points to the local users-db-service ClusterIP.
+#
+# AWS Production (Entrega 2 model):
+#   All apps share a single RDS instance (shared_db). Each app uses its own
+#   schema + role within that shared database for data isolation.
+#
+#   Changes required for AWS deployment:
+#     1. kubectl apply -f k8s/secrets-aws-shared-db.yaml    # shared-db-secrets + per-app creds
+#     2. In each app Deployment, update DB_HOST/DB_PORT to read from shared-db-secrets
+#        and SCHEMA_NAME/DB_ROLE from the per-app credentials (see comment in env block)
 #
 # Usage (from repository root):
 #   kubectl apply -f k8s/users-app.yaml
@@ -34,16 +52,33 @@ spec:
               value: "INFO"
             - name: DB_DRIVER
               value: "postgresql"
+            # Local minikube: all DB values from users-app-secrets (own DB pod)
+            # AWS production: use k8s/secrets-aws-shared-db.yaml model instead
             - name: DB_HOST
-              value: "users-db-service"
+              valueFrom:
+                secretKeyRef:
+                  name: users-app-secrets
+                  key: DB_HOST
             - name: DB_PORT
-              value: "5432"
+              valueFrom:
+                secretKeyRef:
+                  name: users-app-secrets
+                  key: DB_PORT
             - name: DB_NAME
-              value: "users_db"
+              valueFrom:
+                secretKeyRef:
+                  name: users-app-secrets
+                  key: DB_NAME
             - name: DB_USER
-              value: "users_user"
+              valueFrom:
+                secretKeyRef:
+                  name: users-app-secrets
+                  key: DB_USER
             - name: DB_PASSWORD
-              value: "users_pass"
+              valueFrom:
+                secretKeyRef:
+                  name: users-app-secrets
+                  key: DB_PASSWORD
           livenessProbe:
             httpGet:
               path: /users/ping

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Updated Kubernetes deployment manifests [d49519f]:
+  - `k8s/offers-app.yaml`
+  - `k8s/posts-app.yaml`
+  - `k8s/routes-app.yaml`
+  - `k8s/users-app.yaml`
+
+
 ## [Entrega 1] - 2026-08-30
 
 ### Added

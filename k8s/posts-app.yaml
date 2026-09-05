@@ -1,6 +1,8 @@
 # Kubernetes deployment for posts_app
 # Minikube: app + PostgreSQL (ephemeral emptyDir)
 # Namespace: default
+# DB credentials: managed via AWS Secrets Manager by External Secrets Operator
+# ENVIRONMENT NOTES: Local minikube = own DB pod (k8s/secrets.yaml). AWS = shared RDS (see k8s/secrets-aws-shared-db.yaml).
 #
 # Usage (from repository root):
 #   kubectl apply -f k8s/posts-app.yaml
@@ -35,15 +37,30 @@ spec:
             - name: DB_DRIVER
               value: "postgresql"
             - name: DB_HOST
-              value: "posts-db-service"
+              valueFrom:
+                secretKeyRef:
+                  name: posts-app-secrets
+                  key: DB_HOST
             - name: DB_PORT
-              value: "5432"
+              valueFrom:
+                secretKeyRef:
+                  name: posts-app-secrets
+                  key: DB_PORT
             - name: DB_NAME
-              value: "posts_db"
+              valueFrom:
+                secretKeyRef:
+                  name: posts-app-secrets
+                  key: DB_NAME
             - name: DB_USER
-              value: "posts_user"
+              valueFrom:
+                secretKeyRef:
+                  name: posts-app-secrets
+                  key: DB_USER
             - name: DB_PASSWORD
-              value: "posts_pass"
+              valueFrom:
+                secretKeyRef:
+                  name: posts-app-secrets
+                  key: DB_PASSWORD
           livenessProbe:
             httpGet:
               path: /posts/ping

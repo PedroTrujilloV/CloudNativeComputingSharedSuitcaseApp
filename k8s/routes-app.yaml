@@ -1,6 +1,7 @@
 # Kubernetes deployment for routes_app
 # Minikube deployment: app + PostgreSQL (ephemeral)
 # Namespace: default
+# DB credentials: managed via AWS Secrets Manager by External Secrets Operator
 #
 # Usage:
 #   kubectl apply -f k8s/routes-app.yaml
@@ -40,16 +41,33 @@ spec:
               value: "INFO"
             - name: DB_DRIVER
               value: "postgresql"
+            # Local minikube: all DB values from routes-app-secrets (own DB pod)
+            # AWS production: use k8s/secrets-aws-shared-db.yaml model instead
             - name: DB_HOST
-              value: "routes-db-service"
+              valueFrom:
+                secretKeyRef:
+                  name: routes-app-secrets
+                  key: DB_HOST
             - name: DB_PORT
-              value: "5432"
+              valueFrom:
+                secretKeyRef:
+                  name: routes-app-secrets
+                  key: DB_PORT
             - name: DB_NAME
-              value: "routes_db"
+              valueFrom:
+                secretKeyRef:
+                  name: routes-app-secrets
+                  key: DB_NAME
             - name: DB_USER
-              value: "routes_user"
+              valueFrom:
+                secretKeyRef:
+                  name: routes-app-secrets
+                  key: DB_USER
             - name: DB_PASSWORD
-              value: "routes_pass"
+              valueFrom:
+                secretKeyRef:
+                  name: routes-app-secrets
+                  key: DB_PASSWORD
 
           livenessProbe:
             httpGet:

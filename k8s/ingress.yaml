@@ -1,0 +1,118 @@
+# ============================================================
+# Ingress - Single public entry point for all 7 services
+# ============================================================
+# Routes incoming HTTP requests by path prefix to the correct backend Service.
+# The client only ever sees one host and makes one request per requirement.
+#
+# For AWS production (EKS + ALB):
+#   - This Ingress is backed by an AWS ALB via the AWS Load Balancer Controller
+#   - Set ingressClass: alb (or remove to use cluster default)
+#   - All Secrets are managed by the External Secrets Operator from AWS Secrets Manager
+#     (no K8s Secret objects needed; ESO populates secretKeyRef values at runtime)
+#
+# For local development (Minikube + NGINX):
+#   - Ensure minikube addons enable ingress
+#   - This Ingress uses ingressClass: nginx for local testing
+#
+# Usage (from repository root, local minikube):
+#   kubectl apply -f k8s/secrets.yaml
+#   kubectl apply -f k8s/ingress.yaml
+#
+# After applying the Ingress, access services via:
+#   minikube tunnel  (provides a load balancer IP)
+#   curl http://localhost/users/ping
+#   curl http://localhost/posts/ping
+#   curl http://localhost/offers/ping
+#   curl http://localhost/routes/ping
+#   curl http://localhost/rf003/ping
+#   curl http://localhost/rf004/ping
+#   curl http://localhost/rf005/ping
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: microservices-ingress
+  labels:
+    app: ingress-controller
+  annotations:
+    # AWS ALB annotations for production (EKS)
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    # HTTP to HTTPS redirect in production
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    # AWS Load Balancer Controller uses target type "ip" for EKS workloads
+    alb.ingress.kubernetes.io/ip-address-type: ipv4
+spec:
+  ingressClassName: nginx
+  rules:
+    # Default rule - route all traffic on host (empty host = wildcard)
+    # Each path maps to a backend Service by path prefix matching
+    - http:
+        paths:
+          # ---- Legacy Apps (Entrega 1) ----
+
+          # Users App
+          - path: /users
+            pathType: Prefix
+            backend:
+              service:
+                name: users-app-service
+                port:
+                  number: 8000
+
+          # Posts App
+          - path: /posts
+            pathType: Prefix
+            backend:
+              service:
+                name: posts-app-service
+                port:
+                  number: 8000
+
+          # Offers App
+          - path: /offers
+            pathType: Prefix
+            backend:
+              service:
+                name: offers-app-service
+                port:
+                  number: 8000
+
+          # Routes App
+          - path: /routes
+            pathType: Prefix
+            backend:
+              service:
+                name: routes-app-service
+                port:
+                  number: 8000
+
+          # ---- Orchestrator Apps (Entrega 2) ----
+
+          # RF-003: Create Post Orchestrator
+          - path: /rf003
+            pathType: Prefix
+            backend:
+              service:
+                name: rf003-create-post-service
+                port:
+                  number: 8000
+
+          # RF-004: Create Offer Orchestrator
+          - path: /rf004
+            pathType: Prefix
+            backend:
+              service:
+                name: rf004-create-offer-service
+                port:
+                  number: 8000
+
+          # RF-005: Query Post Orchestrator
+          - path: /rf005
+            pathType: Prefix
+            backend:
+              service:
+                name: rf005-query-post-service
+                port:
+                  number: 8000
