@@ -15,6 +15,12 @@
     - [Unit Tests](#unit-tests)
     - [Integration Tests](#integration-tests)
   - [Pipelines](#pipelines)
+- [Run Orchestators](#run-orchestators)
+  - [RF-004 Offer Creation](#rf-004-offer-creation)
+    - [Run the RF-004 orchestrator locally](#run-the-rf-004-orchestrator-locally)
+    - [Run the RF-004 orchestrator with Docker](#run-the-rf-004-orchestrator-with-docker)
+    - [Deploy the RF-004 orchestrator (Minikube/EKS)](#deploy-the-rf-004-orchestrator-minikubeeks)
+    - [Manual verification of RF-004](#manual-verification-of-rf-004)
 
 ## Project Structure
 
@@ -163,3 +169,116 @@ The `.github/workflows/` folder contains the following pipelines:
 * `ci_entrega2_destroy.yml` (Entrega 2): manually destroys the Terraform stacks in reverse order.
 * `ci_pipeline.yml`: runs the Vale documentation checker on `docs/` for every push/PR to `main`.
 
+
+# Run Orchestators
+
+## RF-004 Offer Creation
+
+The `rf004_create_offer_app` orchestrator exposes the client facing endpoint
+`POST /rf004/posts/{id}/offers`. A request carries a Bearer token (validated
+against the Users service) and a JSON body with the offer details
+(`description`, `size` LARGE/MEDIUM/SMALL, `fragile`, and `offer` in COP).
+The orchestrator then:
+
+1. Validates the caller token (403 without a token, 401 with an invalid one).
+2. Fetches the post from the Posts service (404 if unknown).
+3. Applies the business rules: the caller cannot offer on their own post and
+   the post must not be expired (both return 412).
+4. Fetches the route from the Routes service and calculates the score as
+   `offer - (bag occupancy % * bagCost)`, where the occupancy is 100% for
+   LARGE, 50% for MEDIUM, and 25% for SMALL bags.
+5. Creates the offer in the Offers service.
+6. Persists the score in the Scores service.
+
+Consistency (saga compensation, documented in
+[solution-patterns.md](./solution-patterns.md#rf-004)): the flow performs
+two writes on two independently owned stores (Offers, Scores) with no
+distributed transaction, and the team's definition of consistency is
+**either both writes exist or neither does**. Steps 5 and 6 are therefore
+a saga: when the score stage fails with an integration error (Scores
+unreachable) after the offer was already created, the orchestrator runs
+the compensating action (deletes the just created offer through
+`DELETE /offers/{id}`) and answers `503` with the message `El servicio
+está temporalmente fuera de servicio.`, so no orphaned offer remains.
+Hard failures at any stage (Users, Posts, Routes, Offers, or Scores
+unreachable) return `503`; business rejections (400/404/412) pass
+through unchanged and never trigger compensation. The full contract,
+status code table, and environment variables are documented in the
+[RF-004 app README](../rf004_create_offer_app/README.md).
+
+### Run the RF-004 orchestrator locally
+
+```bash
+cd rf004_create_offer_app
+poetry install
+USERS_SERVICE_URL=http://localhost:8000 \
+POSTS_SERVICE_URL=http://localhost:8003 \
+ROUTES_SERVICE_URL=http://localhost:8002 \
+OFFERS_SERVICE_URL=http://localhost:8004 \
+SCORES_SERVICE_URL=http://localhost:8005 \
+poetry run uvicorn entrypoints.api.main:app --host 0.0.0.0 --port 8001
+```
+
+All five downstream services must be running for the happy path (Users on
+`8000`, Routes on `8002`, Posts on `8003`, Offers on `8004`, Scores on
+`8005`; any ports work if you export the matching `*_SERVICE_URL` values).
+
+### Run the RF-004 orchestrator with Docker
+
+```bash
+cd rf004_create_offer_app
+docker build -t rf004-create-offer-app:v0.0.0 .
+docker run --rm -p 8001:8000 \
+  -e USERS_SERVICE_URL=http://users-app-service:8000 \
+  -e POSTS_SERVICE_URL=http://posts-app-service:8000 \
+  -e ROUTES_SERVICE_URL=http://routes-app-service:8002 \
+  -e OFFERS_SERVICE_URL=http://offers-app-service:8004 \
+  -e SCORES_SERVICE_URL=http://scores-app-service:8005 \
+  rf004-create-offer-app:v0.0.0
+```
+
+### Deploy the RF-004 orchestrator (Minikube/EKS)
+
+Build and push the image to ECR, then create the Deployment and Service
+(name `rf004-create-offer-service`, port `8000`) with the
+`USERS_SERVICE_URL`, `POSTS_SERVICE_URL`, `ROUTES_SERVICE_URL`,
+`OFFERS_SERVICE_URL`, and `SCORES_SERVICE_URL` environment variables
+pointing at the cluster DNS names of each downstream service, and expose it
+through the ingress path `/rf004/posts/{id}/offers` (see the
+[Deployment View](./deployment-view.md)). Verify after deploying:
+
+```bash
+kubectl get pods -l app=rf004-create-offer-app
+# -> 1/1 Running (the HEALTHCHECK on /rf004/ping gates readiness)
+
+kubectl logs -l app=rf004-create-offer-app --tail=20
+# -> uvicorn startup lines, no import or configuration errors
+
+curl -s http://<INGRESS_HOST>/rf004/ping
+# -> pong
+```
+
+### Manual verification of RF-004
+
+The full step by step curl walkthrough (user and token creation, route
+creation, post creation, the 403/401/400/404/412/503 scenarios, and the 201
+happy path with the score persisted) is in the
+[RF-004 app README](../rf004_create_offer_app/README.md#manual-verification-curl).
+
+The Postman collection in `rf004_create_offer_app/tests/api/evaluate_rf004.json`
+covers the same flow: its **Setup** folder creates the owner and the caller,
+stores both tokens, creates a route, and creates a valid owner post plus a
+short lived one. Run the remaining requests in order: the **Expired post**
+request runs after the short lived post has expired, and the last request
+(**Valid request -> 201**) asserts the `201` status and the `data` body with
+the new offer id, the caller id, the creation timestamp, and the post id.
+
+The consistency acceptance criteria are covered by
+`rf004_create_offer_app/tests/api/evaluate_rf004_consistency.json` (stop
+the Scores service first, then run its **Consistency** folder): the offer
+request answers `503` with the standard message, the follow up request
+verifies that no orphaned offer remains for the post (the compensating
+deletion ran), and a final request after restarting the Scores service
+confirms the `201` happy path again. See the
+[RF-004 app README](../rf004_create_offer_app/README.md#manual-verification-consistency-rollback-on-a-mid-flow-outage)
+for the curl equivalent.

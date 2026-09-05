@@ -83,18 +83,19 @@ else body is well-formed
 
               alt Scores unreachable / integration failure
                 Scores --> RF004 : (timeout / 5xx)
+                RF004 -> Offers : DELETE /offers/{id}\n(compensating action)
+                Offers --> RF004 : 200 (offer deleted)
                 note right of RF004
                   Consistency requirement:
-                  the offer already exists in Offers.
-                  Per RF-004's resilience requirement,
-                  the flow does not roll back the offer
-                  just because scoring is temporarily
-                  unavailable; the score remains
-                  undefined and will read as null
-                  in RF-005 until Scores recovers.
+                  the offer already exists in Offers,
+                  so the orchestrator compensates
+                  (saga compensation) by deleting
+                  the just created offer. Either both
+                  writes exist or neither does: no
+                  orphaned offer remains.
                 end note
-                RF004 --> Ingress : 201\n{"data": {id, userId, createdAt, postId},\n"msg": "Oferta creada; score pendiente\nde cálculo."}
-                Ingress --> User : 201 (offer persisted,\nscore pending)
+                RF004 --> Ingress : 503\n{"msg": "El servicio está\ntemporalmente fuera de servicio."}
+                Ingress --> User : 503 (no orphaned data)
               else score persisted successfully
                 Scores --> RF004 : 201 {offerId, score}
                 RF004 --> Ingress : 201\n{"data": {id, userId, createdAt, postId},\n"msg": "Oferta creada exitosamente."}

@@ -30,6 +30,8 @@ By using this project, you will find:
   - [Table of Contents](#table-of-contents)
   - [Team](#team)
   - [Architectural Views](#architectural-views)
+    - [Consistency patterns for orchestrators](#consistency-patterns-for-orchestrators)
+    - [Requirements](#requirements)
   - [Development and Deployment Technologies](#development-and-deployment-technologies)
     - [Postman](#postman)
     - [Git](#git)
@@ -47,10 +49,21 @@ By using this project, you will find:
   - [Run with Minikube](#run-with-minikube)
     - [Local deployment (without Ingress)](#local-deployment-without-ingress)
     - [Local deployment with Ingress (recommended for Entrega 2)](#local-deployment-with-ingress-recommended-for-entrega-2)
+      - [Step 1 - Remove old images and containers](#step-1---remove-old-images-and-containers)
+      - [Step 2 - Start a fresh Minikube cluster with the Ingress addon enabled](#step-2---start-a-fresh-minikube-cluster-with-the-ingress-addon-enabled)
+      - [Step 3 - Build and load all Docker images into Minikube](#step-3---build-and-load-all-docker-images-into-minikube)
+      - [Step 4 - Apply Kubernetes manifests in order](#step-4---apply-kubernetes-manifests-in-order)
+      - [Step 5 - Verify pods and services are running](#step-5---verify-pods-and-services-are-running)
+      - [Step 6 - Access services through the Ingress](#step-6---access-services-through-the-ingress)
     - [Troubleshooting local deployment](#troubleshooting-local-deployment)
     - [AWS production deployment notes](#aws-production-deployment-notes)
-  - [Runing plantuml-generator](#runing-plantuml-generator)
+  - [Running PlantUML Generator](#running-plantuml-generator)
   - [Technical Documentation](#technical-documentation)
+  - [Kubernetes Resources](#kubernetes-resources)
+    - [Secrets Management](#secrets-management)
+      - [Local Minikube (Entrega 1 model)—per-app databases](#local-minikube-entrega-1-modelper-app-databases)
+      - [AWS Production (Entrega 2 model) shared RDS instance](#aws-production-entrega-2-model-shared-rds-instance)
+      - [Production notes](#production-notes)
   - [Contributing](#contributing)
   - [Team Rules](#team-rules)
   - [License](#license)
@@ -294,6 +307,9 @@ Each application runs independently. Refer to the `README.md` in each folder for
 - [Offers App](apps/offers_app.md)
 - [Scores App](apps/scores_app.md)
 - [RF-003 Orchestation App](apps/rf003_create_post_app.md)
+- [RF-004 Orchestration App](../rf004_create_offer_app/README.md)
+
+For `rf004_create_offer_app` and `rf005_query_post_app`, source folders do not yet exist in this repository. Their Kubernetes manifests (`k8s/rf004-create-offer-app.yaml` and `k8s/rf005-query-post-app.yaml`) are provided for the deployment pipeline. When source code is added, follow the same Dockerfile pattern as `rf003_create_post_app/Dockerfile`.
 
 For `rf004_create_offer_app` and `rf005_query_post_app`, source folders do not yet exist in this repository. Their Kubernetes manifests (`k8s/rf004-create-offer-app.yaml` and `k8s/rf005-query-post-app.yaml`) are provided for the deployment pipeline. When source code is added, follow the same Dockerfile pattern as `rf003_create_post_app/Dockerfile`.
 

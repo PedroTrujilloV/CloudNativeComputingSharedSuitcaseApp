@@ -1,0 +1,338 @@
+{
+  "info": {
+    "_postman_id": "b3f2a1c4-7d58-4e9a-9c1b-8f0e6d4a2c71",
+    "name": "evaluate_rf004_consistency",
+    "description": "Collection to verify the RF-004 consistency strategy (Consistencia Requerimiento RF004): when the Scores service is down mid flow (after the offer was already created), the orchestrator compensates by deleting the just created offer and answers 503 with the exact standard message, so no orphaned offer remains. Run the Setup folder first: it creates a fresh owner and a fresh caller (unique per run), obtains the caller token, creates a route, and creates a valid owner post. STOP the Scores service before running the Consistency folder (for example kill its uvicorn process, or scale the scores deployment to zero). Run the Consistency folder in order: the offer request must answer 503 with the standard message, the verification request must confirm that no orphaned offer remains for the post, and (after restarting the Scores service) the recovery request must answer 201 again.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8001", "type": "string" },
+    { "key": "usersUrl", "value": "http://localhost:8000", "type": "string" },
+    { "key": "postsUrl", "value": "http://localhost:8003", "type": "string" },
+    { "key": "routesUrl", "value": "http://localhost:8002", "type": "string" },
+    { "key": "offersUrl", "value": "http://localhost:8004", "type": "string" },
+    { "key": "token", "value": "", "type": "string" },
+    { "key": "callerId", "value": "", "type": "string" },
+    { "key": "ownerId", "value": "", "type": "string" },
+    { "key": "postId", "value": "", "type": "string" },
+    { "key": "routeId", "value": "", "type": "string" }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "exec": [
+          "var runId = new Date().toISOString().replace(/[^0-9]/g, \"\").slice(0, 10);",
+          "pm.collectionVariables.set(\"runId\", runId);",
+          "function iso(offsetMs) {",
+          "    return new Date(Date.now() + offsetMs).toISOString().replace(\".\", \"\").slice(0, -2) + \"Z\";",
+          "}",
+          "pm.collectionVariables.set(\"futureExpireAt\", iso(1000 * 60 * 60 * 24));",
+          "pm.collectionVariables.set(\"routeStart\", iso(1000 * 60 * 60));",
+          "pm.collectionVariables.set(\"routeEnd\", iso(1000 * 60 * 60 * 25));"
+        ],
+        "type": "text/javascript",
+        "packages": {}
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Setup",
+      "item": [
+        {
+          "name": "Create owner user",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201 and user was created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "    pm.collectionVariables.set(\"ownerId\", pm.response.json().id);",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"rf004cowner{{runId}}\",\n  \"password\": \"Secret123!\",\n  \"email\": \"rf004cowner{{runId}}@example.com\",\n  \"dni\": \"{{runId}}1\",\n  \"fullName\": \"RF004 Consistency Owner\",\n  \"phoneNumber\": \"3001{{runId}}3\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{usersUrl}}/users",
+              "host": ["{{usersUrl}}"],
+              "path": ["users"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create caller user (save callerId)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201 and user was created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "    pm.collectionVariables.set(\"callerId\", pm.response.json().id);",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"rf004ccaller{{runId}}\",\n  \"password\": \"Secret123!\",\n  \"email\": \"rf004ccaller{{runId}}@example.com\",\n  \"dni\": \"{{runId}}2\",\n  \"fullName\": \"RF004 Consistency Caller\",\n  \"phoneNumber\": \"3002{{runId}}4\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{usersUrl}}/users",
+              "host": ["{{usersUrl}}"],
+              "path": ["users"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Authenticate caller (save token)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 and token was issued\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.collectionVariables.set(\"token\", pm.response.json().token);",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"rf004ccaller{{runId}}\",\n  \"password\": \"Secret123!\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{usersUrl}}/users/auth",
+              "host": ["{{usersUrl}}"],
+              "path": ["users", "auth"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create route (save routeId)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201 and route was created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "    pm.collectionVariables.set(\"routeId\", pm.response.json().id);",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"flightId\": \"RF004C-MAN-BOG-{{runId}}\",\n  \"sourceAirportCode\": \"MAN\",\n  \"sourceCountry\": \"Spain\",\n  \"destinyAirportCode\": \"BOG\",\n  \"destinyCountry\": \"Colombia\",\n  \"bagCost\": 10000,\n  \"plannedStartDate\": \"{{routeStart}}\",\n  \"plannedEndDate\": \"{{routeEnd}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{routesUrl}}/routes",
+              "host": ["{{routesUrl}}"],
+              "path": ["routes"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create owner post (save postId)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201 and post was created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "    pm.collectionVariables.set(\"postId\", pm.response.json().id);",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"routeId\": \"{{routeId}}\",\n  \"userId\": \"{{ownerId}}\",\n  \"expireAt\": \"{{futureExpireAt}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{postsUrl}}/posts",
+              "host": ["{{postsUrl}}"],
+              "path": ["posts"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Consistency",
+      "item": [
+        {
+          "name": "Offer request with Scores down -> 503 (run with the Scores service stopped)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 503 with the exact standard message\", function () {",
+                  "    pm.response.to.have.status(503);",
+                  "    let body = pm.response.json();",
+                  "    pm.expect(body).to.eql({ msg: \"El servicio está temporalmente fuera de servicio.\" });",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Space for one medium bag\",\n  \"size\": \"MEDIUM\",\n  \"fragile\": false,\n  \"offer\": 50000\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/rf004/posts/{{postId}}/offers",
+              "host": ["{{baseUrl}}"],
+              "path": ["rf004", "posts", "{{postId}}", "offers"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Verify no orphaned offer remains (the mid flow offer was compensated)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 and the caller has no offers on the post\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    let offers = pm.response.json();",
+                  "    pm.expect(Array.isArray(offers)).to.be.true;",
+                  "    pm.expect(offers.length).to.eq(0);",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{offersUrl}}/offers?post={{postId}}&owner={{callerId}}",
+              "host": ["{{offersUrl}}"],
+              "path": ["offers"],
+              "query": [
+                { "key": "post", "value": "{{postId}}" },
+                { "key": "owner", "value": "{{callerId}}" }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Offer request after Scores recovery -> 201 (run after restarting the Scores service)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201 with offer data and summary\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "    let body = pm.response.json();",
+                  "    pm.expect(body).to.have.property(\"data\");",
+                  "    pm.expect(body.data).to.have.property(\"id\");",
+                  "    pm.expect(body.data).to.have.property(\"userId\");",
+                  "    pm.expect(body.data).to.have.property(\"createdAt\");",
+                  "    pm.expect(body.data).to.have.property(\"postId\");",
+                  "    pm.expect(body).to.have.property(\"msg\");",
+                  "    pm.expect(body.msg.length).to.be.greaterThan(0);",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Space for one medium bag\",\n  \"size\": \"MEDIUM\",\n  \"fragile\": false,\n  \"offer\": 50000\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/rf004/posts/{{postId}}/offers",
+              "host": ["{{baseUrl}}"],
+              "path": ["rf004", "posts", "{{postId}}", "offers"]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

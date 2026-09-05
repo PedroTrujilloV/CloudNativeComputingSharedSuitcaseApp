@@ -1,0 +1,612 @@
+{
+  "info": {
+    "_postman_id": "4a7e9c21-5d18-4f6b-9e3a-2b8c7d6e5f40",
+    "name": "evaluate_rf004",
+    "description": "Collection to verify the RF-004 orchestrator (POST /rf004/posts/{id}/offers): auth + validation gate and the full offer creation flow. Run the Setup folder first: it creates an owner user and a caller user, obtains both tokens, creates a route (needed for score calculation), and creates an owner post (valid) plus a short-lived owner post (expires ~2s after creation, for the expired-post scenario). Run the collection in order; by the time the expired-post request runs, the short-lived post has expired. A fully valid request creates the offer and persists its score, answering 201 with the offer data and a summary message.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8001", "type": "string" },
+    { "key": "usersUrl", "value": "http://localhost:8000", "type": "string" },
+    { "key": "postsUrl", "value": "http://localhost:8003", "type": "string" },
+    { "key": "routesUrl", "value": "http://localhost:8002", "type": "string" },
+    { "key": "scoresUrl", "value": "http://localhost:8005", "type": "string" },
+    { "key": "token", "value": "", "type": "string" },
+    { "key": "ownerToken", "value": "", "type": "string" },
+    { "key": "ownerId", "value": "", "type": "string" },
+    { "key": "postId", "value": "", "type": "string" },
+    { "key": "expiredPostId", "value": "", "type": "string" },
+    { "key": "routeId", "value": "", "type": "string" }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "exec": [
+          "function iso(offsetMs) {",
+          "    return new Date(Date.now() + offsetMs).toISOString().replace(\".\", \"\").slice(0, -2) + \"Z\";",
+          "}",
+          "pm.collectionVariables.set(\"futureExpireAt\", iso(1000 * 60 * 60 * 24));",
+          "pm.collectionVariables.set(\"soonExpireAt\", iso(2000));",
+          "pm.collectionVariables.set(\"routeStart\", iso(1000 * 60 * 60));",
+          "pm.collectionVariables.set(\"routeEnd\", iso(1000 * 60 * 60 * 25));"
+        ],
+        "type": "text/javascript",
+        "packages": {}
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Setup",
+      "item": [
+        {
+          "name": "Create owner user",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201 and user was created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "    pm.collectionVariables.set(\"ownerId\", pm.response.json().id);",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"rf004owner\",\n  \"password\": \"Secret123!\",\n  \"email\": \"rf004owner@example.com\",\n  \"dni\": \"12345678\",\n  \"fullName\": \"RF004 Owner\",\n  \"phoneNumber\": \"3001112233\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{usersUrl}}/users",
+              "host": ["{{usersUrl}}"],
+              "path": ["users"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create caller user",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201 and user was created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"rf004caller\",\n  \"password\": \"Secret123!\",\n  \"email\": \"rf004caller@example.com\",\n  \"dni\": \"87654321\",\n  \"fullName\": \"RF004 Caller\",\n  \"phoneNumber\": \"3004445566\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{usersUrl}}/users",
+              "host": ["{{usersUrl}}"],
+              "path": ["users"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Authenticate owner (save ownerToken)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 and token was issued\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.collectionVariables.set(\"ownerToken\", pm.response.json().token);",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"rf004owner\",\n  \"password\": \"Secret123!\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{usersUrl}}/users/auth",
+              "host": ["{{usersUrl}}"],
+              "path": ["users", "auth"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Authenticate caller (save token)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 and token was issued\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.collectionVariables.set(\"token\", pm.response.json().token);",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"rf004caller\",\n  \"password\": \"Secret123!\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{usersUrl}}/users/auth",
+              "host": ["{{usersUrl}}"],
+              "path": ["users", "auth"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create route (save routeId)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201 and route was created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "    pm.collectionVariables.set(\"routeId\", pm.response.json().id);",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"flightId\": \"RF004-MAN-BOG\",\n  \"sourceAirportCode\": \"MAN\",\n  \"sourceCountry\": \"Spain\",\n  \"destinyAirportCode\": \"BOG\",\n  \"destinyCountry\": \"Colombia\",\n  \"bagCost\": 10000,\n  \"plannedStartDate\": \"{{routeStart}}\",\n  \"plannedEndDate\": \"{{routeEnd}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{routesUrl}}/routes",
+              "host": ["{{routesUrl}}"],
+              "path": ["routes"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create owner post (save postId)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201 and post was created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "    pm.collectionVariables.set(\"postId\", pm.response.json().id);",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"routeId\": \"{{routeId}}\",\n  \"userId\": \"{{ownerId}}\",\n  \"expireAt\": \"{{futureExpireAt}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{postsUrl}}/posts",
+              "host": ["{{postsUrl}}"],
+              "path": ["posts"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create short-lived owner post (save expiredPostId)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201 and post was created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "    pm.collectionVariables.set(\"expiredPostId\", pm.response.json().id);",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"routeId\": \"{{routeId}}\",\n  \"userId\": \"{{ownerId}}\",\n  \"expireAt\": \"{{soonExpireAt}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{postsUrl}}/posts",
+              "host": ["{{postsUrl}}"],
+              "path": ["posts"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "ping",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200 and body is pong\", function () {",
+              "    pm.response.to.have.status(200);",
+              "    pm.expect(pm.response.text()).to.eq(\"pong\");",
+              "});"
+            ],
+            "type": "text/javascript",
+            "packages": {}
+          }
+        }
+      ],
+      "request": {
+        "auth": { "type": "noauth" },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/rf004/ping",
+          "host": ["{{baseUrl}}"],
+          "path": ["rf004", "ping"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Missing token -> 403",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 403 with empty body\", function () {",
+              "    pm.response.to.have.status(403);",
+              "    pm.expect(pm.response.text()).to.eq(\"\");",
+              "});"
+            ],
+            "type": "text/javascript",
+            "packages": {}
+          }
+        }
+      ],
+      "request": {
+        "auth": { "type": "noauth" },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"description\": \"Space for one medium bag\",\n  \"size\": \"MEDIUM\",\n  \"fragile\": false,\n  \"offer\": 50000\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/rf004/posts/{{postId}}/offers",
+          "host": ["{{baseUrl}}"],
+          "path": ["rf004", "posts", "{{postId}}", "offers"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Invalid token -> 401",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 401 with empty body\", function () {",
+              "    pm.response.to.have.status(401);",
+              "    pm.expect(pm.response.text()).to.eq(\"\");",
+              "});"
+            ],
+            "type": "text/javascript",
+            "packages": {}
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "not-a-valid-token", "type": "string" }]
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"description\": \"Space for one medium bag\",\n  \"size\": \"MEDIUM\",\n  \"fragile\": false,\n  \"offer\": 50000\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/rf004/posts/{{postId}}/offers",
+          "host": ["{{baseUrl}}"],
+          "path": ["rf004", "posts", "{{postId}}", "offers"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Missing field -> 400",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 400 with empty body\", function () {",
+              "    pm.response.to.have.status(400);",
+              "    pm.expect(pm.response.text()).to.eq(\"\");",
+              "});"
+            ],
+            "type": "text/javascript",
+            "packages": {}
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"description\": \"Space for one medium bag\",\n  \"size\": \"MEDIUM\",\n  \"fragile\": false\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/rf004/posts/{{postId}}/offers",
+          "host": ["{{baseUrl}}"],
+          "path": ["rf004", "posts", "{{postId}}", "offers"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Invalid size -> 400",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 400 with empty body\", function () {",
+              "    pm.response.to.have.status(400);",
+              "    pm.expect(pm.response.text()).to.eq(\"\");",
+              "});"
+            ],
+            "type": "text/javascript",
+            "packages": {}
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"description\": \"Space for one medium bag\",\n  \"size\": \"XL\",\n  \"fragile\": false,\n  \"offer\": 50000\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/rf004/posts/{{postId}}/offers",
+          "host": ["{{baseUrl}}"],
+          "path": ["rf004", "posts", "{{postId}}", "offers"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Unknown post -> 404",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 404 with empty body\", function () {",
+              "    pm.response.to.have.status(404);",
+              "    pm.expect(pm.response.text()).to.eq(\"\");",
+              "});"
+            ],
+            "type": "text/javascript",
+            "packages": {}
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"description\": \"Space for one medium bag\",\n  \"size\": \"MEDIUM\",\n  \"fragile\": false,\n  \"offer\": 50000\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/rf004/posts/00000000-0000-4000-8000-000000000000/offers",
+          "host": ["{{baseUrl}}"],
+          "path": ["rf004", "posts", "00000000-0000-4000-8000-000000000000", "offers"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Own post -> 412",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 412 with empty body\", function () {",
+              "    pm.response.to.have.status(412);",
+              "    pm.expect(pm.response.text()).to.eq(\"\");",
+              "});"
+            ],
+            "type": "text/javascript",
+            "packages": {}
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{ownerToken}}", "type": "string" }]
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"description\": \"Space for one medium bag\",\n  \"size\": \"MEDIUM\",\n  \"fragile\": false,\n  \"offer\": 50000\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/rf004/posts/{{postId}}/offers",
+          "host": ["{{baseUrl}}"],
+          "path": ["rf004", "posts", "{{postId}}", "offers"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Expired post -> 412",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 412 with empty body\", function () {",
+              "    pm.response.to.have.status(412);",
+              "    pm.expect(pm.response.text()).to.eq(\"\");",
+              "});"
+            ],
+            "type": "text/javascript",
+            "packages": {}
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"description\": \"Space for one medium bag\",\n  \"size\": \"MEDIUM\",\n  \"fragile\": false,\n  \"offer\": 50000\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/rf004/posts/{{expiredPostId}}/offers",
+          "host": ["{{baseUrl}}"],
+          "path": ["rf004", "posts", "{{expiredPostId}}", "offers"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Valid request -> 201 (offer created, score persisted)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 201 with offer data and summary\", function () {",
+              "    pm.response.to.have.status(201);",
+              "    let body = pm.response.json();",
+              "    pm.expect(body).to.have.property(\"data\");",
+              "    pm.expect(body.data).to.have.property(\"id\");",
+              "    pm.expect(body.data).to.have.property(\"userId\");",
+              "    pm.expect(body.data).to.have.property(\"createdAt\");",
+              "    pm.expect(body.data).to.have.property(\"postId\");",
+              "    pm.expect(body).to.have.property(\"msg\");",
+              "    pm.expect(body.msg.length).to.be.greaterThan(0);",
+              "});"
+            ],
+            "type": "text/javascript",
+            "packages": {}
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"description\": \"Space for one medium bag\",\n  \"size\": \"MEDIUM\",\n  \"fragile\": false,\n  \"offer\": 50000\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/rf004/posts/{{postId}}/offers",
+          "host": ["{{baseUrl}}"],
+          "path": ["rf004", "posts", "{{postId}}", "offers"]
+        }
+      },
+      "response": []
+    }
+  ]
+}
