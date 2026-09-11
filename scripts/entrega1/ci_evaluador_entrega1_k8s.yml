@@ -1,0 +1,202 @@
+name: Entrega 1 - Evaluador Implementación
+on:
+  workflow_dispatch:
+  workflow_call:
+jobs:
+  k8stest:
+    runs-on: ubuntu-latest
+    name: Configuration and API tests on Minikube
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.11
+    - name: Set up Node.js
+      uses: actions/setup-node@v1
+      with:
+        node-version: 18
+        registry-url: https://registry.npmjs.org/
+    - name: Create evaluator folder
+      run: mkdir -p .evaluator
+    - name: Download validate scripts
+      run: |
+        curl -sSL -o .evaluator/validate_cluster.sh https://raw.githubusercontent.com/MISW-4301-Desarrollo-Apps-en-la-Nube/proyecto-monitor/main/entrega1/validate_cluster.sh
+        chmod +x .evaluator/validate_cluster.sh
+        curl -sSL -o .evaluator/validate_networks.sh https://raw.githubusercontent.com/MISW-4301-Desarrollo-Apps-en-la-Nube/proyecto-monitor/main/entrega1/validate_networks.sh
+        chmod +x .evaluator/validate_networks.sh
+        curl -sSL -o .evaluator/remove_blockers.sh https://raw.githubusercontent.com/MISW-4301-Desarrollo-Apps-en-la-Nube/proyecto-monitor/main/entrega1/remove_blockers.sh
+        chmod +x .evaluator/remove_blockers.sh
+        curl -sSL -o .evaluator/run_tests_k8s.sh https://raw.githubusercontent.com/MISW-4301-Desarrollo-Apps-en-la-Nube/proyecto-monitor/main/entrega1/run_tests_k8s.sh
+        chmod +x .evaluator/run_tests_k8s.sh
+        curl -sSL -o .evaluator/block_traffic.yml https://raw.githubusercontent.com/MISW-4301-Desarrollo-Apps-en-la-Nube/proyecto-monitor/main/entrega1/block_traffic.yml
+        curl -sSL -o .evaluator/entrega1_users.json https://raw.githubusercontent.com/MISW-4301-Desarrollo-Apps-en-la-Nube/proyecto-monitor/main/entrega1/entrega1_users.json
+        curl -sSL -o .evaluator/entrega1_posts.json https://raw.githubusercontent.com/MISW-4301-Desarrollo-Apps-en-la-Nube/proyecto-monitor/main/entrega1/entrega1_posts.json
+        curl -sSL -o .evaluator/entrega1_offers.json https://raw.githubusercontent.com/MISW-4301-Desarrollo-Apps-en-la-Nube/proyecto-monitor/main/entrega1/entrega1_offers.json
+        curl -sSL -o .evaluator/entrega1_routes.json https://raw.githubusercontent.com/MISW-4301-Desarrollo-Apps-en-la-Nube/proyecto-monitor/main/entrega1/entrega1_routes.json
+    - name: Set up yq
+      uses: mikefarah/yq@v4.30.8
+    - name: Save folder env variables
+      run: |
+        echo "USERS_FOLDER=$(yq '.users_app.folder' config.yaml)" >> $GITHUB_ENV
+        echo "USERS_IMAGE=$(yq '.users_app.image_name' config.yaml)" >> $GITHUB_ENV
+        echo "USERS_VERSION=$(yq '.users_app.image_tag' config.yaml)" >> $GITHUB_ENV
+        echo "POSTS_FOLDER=$(yq '.posts_app.folder' config.yaml)" >> $GITHUB_ENV
+        echo "POSTS_IMAGE=$(yq '.posts_app.image_name' config.yaml)" >> $GITHUB_ENV
+        echo "POSTS_VERSION=$(yq '.posts_app.image_tag' config.yaml)" >> $GITHUB_ENV
+        echo "ROUTES_FOLDER=$(yq '.routes_app.folder' config.yaml)" >> $GITHUB_ENV
+        echo "ROUTES_IMAGE=$(yq '.routes_app.image_name' config.yaml)" >> $GITHUB_ENV
+        echo "ROUTES_VERSION=$(yq '.routes_app.image_tag' config.yaml)" >> $GITHUB_ENV
+        echo "OFFERS_FOLDER=$(yq '.offers_app.folder' config.yaml)" >> $GITHUB_ENV
+        echo "OFFERS_IMAGE=$(yq '.offers_app.image_name' config.yaml)" >> $GITHUB_ENV
+        echo "OFFERS_VERSION=$(yq '.offers_app.image_tag' config.yaml)" >> $GITHUB_ENV
+    - name: Start minikube
+      id: minikube
+      uses: medyagh/setup-minikube@latest
+      with:
+        cpus: 2
+        memory: 3g
+        cni: calico
+    - name: Build Users Image
+      id: buildUsers
+      if: always() && steps.minikube.conclusion == 'success'
+      run: |
+        if [ -f ./${USERS_FOLDER}/Dockerfile ]; then
+          eval $(minikube docker-env)
+          docker build -t ${USERS_IMAGE}:${USERS_VERSION} -f ${USERS_FOLDER}/Dockerfile ${USERS_FOLDER}
+        else
+          echo "✔️ ./${USERS_FOLDER}/Dockerfile is missing, skip users application"
+          exit 1
+        fi
+    - name: Build Posts Image
+      id: buildPosts
+      if: always() && steps.minikube.conclusion == 'success'
+      run: |
+        if [ -f ./${POSTS_FOLDER}/Dockerfile ]; then
+          eval $(minikube docker-env)
+          docker build -t ${POSTS_IMAGE}:${POSTS_VERSION} -f ${POSTS_FOLDER}/Dockerfile ${POSTS_FOLDER}
+        else
+          echo "✔️ ./${POSTS_FOLDER}/Dockerfile is missing, skip posts application"
+          exit 1
+        fi
+    - name: Build Offers Image
+      id: buildOffers
+      if: always() && steps.minikube.conclusion == 'success'
+      run: |
+        if [ -f ./${OFFERS_FOLDER}/Dockerfile ]; then
+          eval $(minikube docker-env)
+          docker build -t ${OFFERS_IMAGE}:${OFFERS_VERSION} -f ${OFFERS_FOLDER}/Dockerfile ${OFFERS_FOLDER}
+        else
+          echo "✔️ ./${OFFERS_FOLDER}/Dockerfile is missing, skip offers application"
+          exit 1
+        fi
+    - name: Build Routes Image
+      id: buildRoutes
+      if: always() && steps.minikube.conclusion == 'success'
+      run: |
+        if [ -f ./${ROUTES_FOLDER}/Dockerfile ]; then
+          eval $(minikube docker-env)
+          docker build -t ${ROUTES_IMAGE}:${ROUTES_VERSION} -f ${ROUTES_FOLDER}/Dockerfile ${ROUTES_FOLDER}
+        else
+          echo "✔️ ./${ROUTES_FOLDER}/Dockerfile is missing, skip routes application"
+          exit 1
+        fi
+    - name: Deploy to minikube
+      id: deployMinikube
+      if: always() && (steps.buildUsers.conclusion == 'success' || steps.buildOffers.conclusion == 'success' || steps.buildPosts.conclusion == 'success' || steps.buildRoutes.conclusion == 'success')
+      run: |
+        kubectl apply -f k8s
+        minikube service list
+    - name: Validate cluster
+      if: always() && steps.deployMinikube.conclusion == 'success'
+      id: vCluster
+      run: .evaluator/validate_cluster.sh
+    - name: Validate networks
+      if: always() && steps.deployMinikube.conclusion == 'success'
+      id: vNetworks
+      run: .evaluator/validate_networks.sh
+    - name: Execute Posts tests
+      if: always() && steps.deployMinikube.conclusion == 'success' && steps.buildPosts.conclusion == 'success'
+      id: vPosts
+      run: .evaluator/run_tests_k8s.sh posts_app .evaluator
+    - name: Unblock apps
+      if: always() && steps.deployMinikube.conclusion == 'success'
+      continue-on-error: true
+      run: .evaluator/remove_blockers.sh
+    - name: Execute User tests
+      if: always() && steps.deployMinikube.conclusion == 'success' && steps.buildUsers.conclusion == 'success'
+      id: vUsers
+      run: .evaluator/run_tests_k8s.sh users_app .evaluator
+    - name: Unblock apps
+      if: always() && steps.deployMinikube.conclusion == 'success'
+      continue-on-error: true
+      run: .evaluator/remove_blockers.sh
+    - name: Execute Offers tests
+      if: always() && steps.deployMinikube.conclusion == 'success' && steps.buildOffers.conclusion == 'success'
+      id: vOffers
+      run: .evaluator/run_tests_k8s.sh offers_app .evaluator
+    - name: Unblock apps
+      if: always() && steps.deployMinikube.conclusion == 'success'
+      continue-on-error: true
+      run: .evaluator/remove_blockers.sh
+    - name: Execute Routes tests
+      if: always() && steps.deployMinikube.conclusion == 'success' && steps.buildRoutes.conclusion == 'success'
+      id: vRoutes
+      run: .evaluator/run_tests_k8s.sh routes_app .evaluator
+    - name: Unblock apps
+      if: always() && steps.deployMinikube.conclusion == 'success'
+      continue-on-error: true
+      run: .evaluator/remove_blockers.sh
+    - name: Evaluate results
+      if: always()
+      run: |
+          FAIL=0
+
+          if [ "${{ steps.vCluster.outcome }}" = "success" ]; then
+            echo "✅ Cluster verification passed."
+          else
+            echo "❌ Cluster verification failed"
+            FAIL=1
+          fi
+
+          if [ "${{ steps.vNetworks.outcome }}" = "success" ]; then
+            echo "✅ Networks verification passed."
+          else
+            echo "❌ Networks verification failed"
+            FAIL=1
+          fi
+
+          if [ "${{ steps.vUsers.outcome }}" = "success" ]; then
+            echo "✅ Users tests verification passed."
+          else
+            echo "❌ Users tests verification failed"
+            FAIL=1
+          fi
+
+          if [ "${{ steps.vPosts.outcome }}" = "success" ]; then
+            echo "✅ Posts tests verification passed."
+          else
+            echo "❌ Posts tests verification failed"
+            FAIL=1
+          fi
+
+          if [ "${{ steps.vOffers.outcome }}" = "success" ]; then
+            echo "✅ Offers tests verification passed."
+          else
+            echo "❌ Offers tests verification failed"
+            FAIL=1
+          fi
+
+          if [ "${{ steps.vRoutes.outcome }}" = "success" ]; then
+            echo "✅ Routes tests verification passed."
+          else
+            echo "❌ Routes tests verification failed"
+            FAIL=1
+          fi
+
+          if [ "$FAIL" = "1" ]; then
+            echo "❌ One or more steps failed!"
+            exit 1
+          else
+            echo "✅ All steps passed."
+          fi

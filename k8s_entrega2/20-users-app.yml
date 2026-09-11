@@ -1,0 +1,121 @@
+# Kubernetes deployment for users_app
+# Minikube: app only; shared-db-service provides Postgres (k8s_entrega2/local-only/15-shared-db.yml)
+# Namespace: default
+# DB credentials: managed via AWS Secrets Manager by External Secrets Operator
+# (see k8s_entrega2/00-secrets.yml for local minikube values;
+#  see k8s_entrega2/00-aws-secrets-shared-db.yml for AWS production model below)
+#
+# ENVIRONMENT NOTES:
+#
+# Local Minikube (Entrega 2 shared-db model):
+#   All apps share a single Postgres instance (shared-db-service).
+#   Each app uses its own database and role within that instance.
+#   DB_HOST is set in 00-secrets.yml to "shared-db-service".
+#
+# AWS Production (Entrega 2 model):
+#   All apps share a single RDS instance (shared_db). Each app uses its own
+#   schema + role within that shared database for data isolation.
+#
+#   Changes required for AWS deployment:
+#     1. kubectl apply -f k8s_entrega2/00-aws-secrets-shared-db.yml    # shared-db-secrets + per-app creds
+#     2. In each app Deployment, update DB_HOST/DB_PORT to read from shared-db-secrets
+#        and SCHEMA_NAME/DB_ROLE from the per-app credentials (see comment in env block)
+#
+# Usage (from repository root):
+#   kubectl apply -f k8s_entrega2/20-users-app.yml
+#   minikube service users-app-service --url
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: users-app
+  labels:
+    app: users-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: users-app
+  template:
+    metadata:
+      labels:
+        app: users-app
+    spec:
+      containers:
+        - name: users-app
+          image: ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/users-app:v0.0.0
+          ports:
+            - containerPort: 8000
+          env:
+            - name: APP_NAME
+              value: "users_app"
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: DB_DRIVER
+              value: "postgresql"
+            # Local minikube: all DB values from users-app-secrets (shared-db-service)
+            # AWS production: use k8s_entrega2/00-aws-secrets-shared-db.yml model instead
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: users-app-secrets
+                  key: DB_HOST
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: users-app-secrets
+                  key: DB_PORT
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: users-app-secrets
+                  key: DB_NAME
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: users-app-secrets
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: users-app-secrets
+                  key: DB_PASSWORD
+          livenessProbe:
+            httpGet:
+              path: /users/ping
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /users/ping
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            limits:
+              cpu: "150m"
+              memory: "150Mi"
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: users-app-service
+  labels:
+    app: users-app
+spec:
+  type: ClusterIP
+  selector:
+    app: users-app
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+

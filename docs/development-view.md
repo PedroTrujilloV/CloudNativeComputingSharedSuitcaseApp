@@ -6,7 +6,8 @@
   - [Table of Contents](#table-of-contents)
   - [Project Structure](#project-structure)
     - [Application Folders](#application-folders)
-    - [k8s Folder](#k8s-folder)
+    - [k8s Folders](#k8s-folders)
+    - [Ingress](#ingress)
     - [docs Folder](#docs-folder)
     - [config.yaml File](#configyaml-file)
   - [API Endpoints](#api-endpoints)
@@ -42,7 +43,9 @@
 ├── scores_app/                      # Scores application (Entrega 2)
 │   └── README.md                    # App structure, tests, env vars, config, execution
 │
-├── k8s/                             # Kubernetes deployment manifests
+├── k8s/                             # Legacy Entrega 1 manifests (k8s/entrega1_k8s/)
+├── k8s_entrega2/                    # Entrega 2 manifests (secrets, apps, ingress, local-db)
+├── scripts/                         # Local deploy/verify scripts + rf004/rf005 stub image
 │
 ├── docs/                            # Technical documentation
 │   ├── README.md                    # Documentation home + team + technologies + TOC
@@ -79,9 +82,48 @@ Each application (`users_app`, `routes_app`, `posts_app`, `offers_app`, and `sco
 
 Each application has exclusive ownership of its own data: no application directly accesses another application's database.
 
-### k8s Folder
+### k8s Folders
 
-Contains the declarative manifests required to deploy the applications and their databases on Minikube: Deployments, Services (ClusterIP for databases and NodePort for applications), `emptyDir` volumes, and Network Policies for isolation. The current manifests cover the four Delivery 1 applications (`users-app`, `posts-app`, `routes-app`, `offers-app`); the `scores_app` manifest is added in a follow-up task of Epic B.
+The manifests are split into two folders, one per delivery, because both
+deployments define resources with the same names (for example
+`users-app`, `users-app-service`, `users-db`) but with different images,
+and they must not be applied to the same cluster at the same time.
+
+- **`k8s_entrega2/`** contains the declarative manifests for the Entrega 2
+  deployment: Secrets, Deployments + Services (ClusterIP for applications)
+  for the five data-owning microservices (`users-app`, `posts-app`,
+  `offers-app`, `routes-app`, `scores-app`) and the three orchestrators,
+  plus the Ingress. Data isolation between apps uses a single shared Postgres
+  instance (per-app databases and roles) local Minikube uses the file in
+  `k8s_entrega2/local-only/15-shared-db.yml`; production uses AWS RDS.
+  File names encode the apply order (00 secrets, 15 shared db, 20 apps, zz
+  ingress), which matches the alphabetical order used by the
+  `ci_entrega2_deploy.yml` pipeline.
+- **`k8s/entrega1_k8s/`** contains the original legacy Entrega 1 manifests
+  (`.yaml`) for the four original apps, with underscore image names
+  (`users_app:v0.0.0`, etc.). The `ci_entrega1_evaluador_k8s.yml` pipeline
+  (GitHub) builds those images and applies the whole `k8s/` tree.
+
+**Docker image naming**: The `k8s_entrega2/` manifests use hyphenated image
+names matching the `apps:` list in `config.yaml` exactly (for example,
+`users-app:v0.0.0`, `scores-app:v0.0.0`). The legacy `k8s/entrega1_k8s/`
+manifests use the underscore names from the top-level `config.yaml` keys
+(for example, `users_app:v0.0.0`).
+
+**Local automation**: `scripts/local-deploy.sh` and `scripts/local-verify.sh`
+deploy and verify the `k8s_entrega2/` stack on Minikube (see the
+[README](../README.md#run-with-minikube)). `scripts/stubs/` provides a
+ping-only image for `rf004`/`rf005`, whose real code lives in separate
+branches.
+
+### Ingress
+
+`k8s_entrega2/zz-ingress.yml` (resource name `microservices-ingress`)
+provides a single public entry point routing by path prefix to all eight
+services. It supports two deployment environments:
+
+- **Local Minikube**: pre-configured with `ingressClassName: nginx` for the NGINX ingress addon
+- **AWS EKS production**: change to `ingressClassName: alb` and add ALB annotations per the [README documentation](../README.md#ingress-configurations-two-environments)
 
 ### docs Folder
 
@@ -163,9 +205,9 @@ These same collections are used by the `ci_evaluador_entrega1_k8s.yml` pipeline 
 The `.github/workflows/` folder contains the following pipelines:
 
 * `ci_entrega1_evaluador_docs.yml`: validates the technical documentation and PlantUML diagrams. **This file must not be modified.**
-* `ci_entrega1_evaluador_k8s.yml`: validates the Minikube deployment, network policies, and API contract of each application. **This file must not be modified.**
+* `ci_entrega1_evaluador_k8s.yml`: validates the Minikube deployment, database configuration, and API contract of each application. **This file must not be modified.**
 * `ci_evaluador_unit.yml`: runs the unit tests and validates the minimum 70% coverage for each application. **This is the only pipeline file the team should modify**, by adding one job for each application.
-* `ci_entrega2_deploy.yml` (Entrega 2): builds the images declared under `apps:` in `config.yaml` (including `scores-app:v0.0.0`), pushes them to ECR, deploys the Terraform stacks, and applies the `k8s/` manifests.
+* `ci_entrega2_deploy.yml` (Entrega 2): builds the images declared under `apps:` in `config.yaml` (including `scores-app:v0.0.0`), pushes them to ECR, deploys the Terraform stacks, and applies the `k8s_entrega2/` manifests (listed in `k8s_manifests`).
 * `ci_entrega2_destroy.yml` (Entrega 2): manually destroys the Terraform stacks in reverse order.
 * `ci_pipeline.yml`: runs the Vale documentation checker on `docs/` for every push/PR to `main`.
 

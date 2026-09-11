@@ -213,3 +213,23 @@ users_app/uv.lock
 ._.DS_Store
 
 braindump.md
+
+# Terraform
+.terraform/
+*.tfplan
+*.tfstate.lock.*
+*.tfstate.backup
+*.tfstate
+crash.log
+crash.*.log
+.terraformrc
+terraform.rc
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraform.lock.hcl
+
+# vale/Google 
+styles
+k8s_temp_deploy

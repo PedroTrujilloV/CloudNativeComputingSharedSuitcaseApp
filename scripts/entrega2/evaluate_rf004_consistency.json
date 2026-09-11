@@ -1,0 +1,743 @@
+{
+	"info": {
+		"_postman_id": "535bf277-875e-4298-8fe2-5a4026cae93a",
+		"name": "[MISO] Entrega 2 - Verify RF004 Consistency",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "23047833",
+		"_collection_link": "https://go.postman.co/collection/23047833-535bf277-875e-4298-8fe2-5a4026cae93a?source=collection_link"
+	},
+	"item": [
+		{
+			"name": "Reset",
+			"item": [
+				{
+					"name": "Reset users",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"console.log(pm.response.text())"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_PATH}}/users/reset",
+							"host": [
+								"{{BASE_PATH}}"
+							],
+							"path": [
+								"users",
+								"reset"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Reset routes",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"console.log(pm.response.text())"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_PATH}}/routes/reset",
+							"host": [
+								"{{BASE_PATH}}"
+							],
+							"path": [
+								"routes",
+								"reset"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Reset posts",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"console.log(pm.response.text())"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_PATH}}/posts/reset",
+							"host": [
+								"{{BASE_PATH}}"
+							],
+							"path": [
+								"posts",
+								"reset"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Reset offers",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"console.log(pm.response.text())"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_PATH}}/offers/reset",
+							"host": [
+								"{{BASE_PATH}}"
+							],
+							"path": [
+								"offers",
+								"reset"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "RF-004 Crear oferta",
+			"item": [
+				{
+					"name": "Crear Recursos",
+					"item": [
+						{
+							"name": "Creación de usuarios",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"console.log(pm.response.text())",
+											"let jsonData = JSON.parse(responseBody);",
+											"",
+											"if(jsonData.id) {",
+											"    pm.collectionVariables.set('USER_ID', jsonData.id);",
+											"}",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {}
+									}
+								},
+								{
+									"listen": "prerequest",
+									"script": {
+										"exec": [
+											"const email = pm.variables.replaceIn(\"{{$randomEmail}}\").toLowerCase();",
+											"const username = \"usertestrf004\"",
+											"const password = \"usertestrf004\"",
+											"const dni = pm.variables.replaceIn(\"{{$randomInt}}\");",
+											"const fullname = pm.variables.replaceIn(\"{{$randomFullName}}\").toLowerCase();",
+											"const phonenumber = pm.variables.replaceIn(\"{{$randomPhoneNumber}}\").replaceAll('-', '');",
+											"",
+											"pm.collectionVariables.set('1_USER_EMAIL', email);",
+											"pm.collectionVariables.set('1_USER_USERNAME', username);",
+											"pm.collectionVariables.set('1_USER_PASSWORD', password);",
+											"pm.collectionVariables.set('1_USER_DNI', dni);",
+											"pm.collectionVariables.set('1_USER_FULLNAME', fullname);",
+											"pm.collectionVariables.set('1_USER_PHONENUMBER', phonenumber);"
+										],
+										"type": "text/javascript",
+										"packages": {}
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"username\": \"{{1_USER_USERNAME}}\",\n    \"password\": \"{{1_USER_PASSWORD}}\",\n    \"email\": \"{{1_USER_EMAIL}}\",\n    \"dni\": \"{{1_USER_DNI}}\",\n    \"fullName\": \"{{1_USER_FULLNAME}}\",\n    \"phoneNumber\": \"{{1_USER_PHONENUMBER}}\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{BASE_PATH}}/users",
+									"host": [
+										"{{BASE_PATH}}"
+									],
+									"path": [
+										"users"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Creación de usuarios 2",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"console.log(pm.response.text())",
+											"let jsonData = JSON.parse(responseBody);",
+											"",
+											"if(jsonData.id) {",
+											"    pm.collectionVariables.set('USER_ID_2', jsonData.id);",
+											"}",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								},
+								{
+									"listen": "prerequest",
+									"script": {
+										"exec": [
+											"const email = pm.variables.replaceIn(\"{{$randomEmail}}\").toLowerCase();",
+											"const username = \"usertestrf0042\"",
+											"const password = \"usertestrf0042\"",
+											"const dni = pm.variables.replaceIn(\"{{$randomInt}}\");",
+											"const fullname = pm.variables.replaceIn(\"{{$randomFullName}}\").toLowerCase();",
+											"const phonenumber = pm.variables.replaceIn(\"{{$randomPhoneNumber}}\").replaceAll('-', '');",
+											"",
+											"pm.collectionVariables.set('2_USER_EMAIL', email);",
+											"pm.collectionVariables.set('2_USER_USERNAME', username);",
+											"pm.collectionVariables.set('2_USER_PASSWORD', password);",
+											"pm.collectionVariables.set('2_USER_DNI', dni);",
+											"pm.collectionVariables.set('2_USER_FULLNAME', fullname);",
+											"pm.collectionVariables.set('2_USER_PHONENUMBER', phonenumber);"
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"username\": \"{{2_USER_USERNAME}}\",\n    \"password\": \"{{2_USER_PASSWORD}}\",\n    \"email\": \"{{2_USER_EMAIL}}\",\n    \"dni\": \"{{2_USER_DNI}}\",\n    \"fullName\": \"{{2_USER_FULLNAME}}\",\n    \"phoneNumber\": \"{{2_USER_PHONENUMBER}}\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{BASE_PATH}}/users",
+									"host": [
+										"{{BASE_PATH}}"
+									],
+									"path": [
+										"users"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "Creación de publicación",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"console.log(pm.response.text())",
+											"let jsonData = JSON.parse(responseBody);",
+											"",
+											"if(jsonData.id) {",
+											"    pm.collectionVariables.set('POST_ID', jsonData.id);",
+											"    console.log(\"POST_ID=\" + pm.collectionVariables.get(\"POST_ID\"));",
+											"}",
+											""
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								},
+								{
+									"listen": "prerequest",
+									"script": {
+										"exec": [
+											"let expireAt = new Date();",
+											"(expireAt.setDate(expireAt.getDate() + 7));",
+											"expireAt = expireAt.toISOString();",
+											"",
+											"pm.collectionVariables.set('POST_EXPIREAT', expireAt);"
+										],
+										"type": "text/javascript",
+										"packages": {},
+										"requests": {}
+									}
+								}
+							],
+							"request": {
+								"auth": {
+									"type": "noauth"
+								},
+								"method": "POST",
+								"header": [],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"routeId\": \"{{$randomUUID}}\",\n    \"expireAt\": \"{{POST_EXPIREAT}}\",\n    \"userId\": \"{{USER_ID_2}}\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{BASE_PATH}}/posts",
+									"host": [
+										"{{BASE_PATH}}"
+									],
+									"path": [
+										"posts"
+									]
+								}
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "Sesion & RF-004",
+					"item": [
+						{
+							"name": "Crear sesion",
+							"item": [
+								{
+									"name": "Generación de token",
+									"event": [
+										{
+											"listen": "test",
+											"script": {
+												"exec": [
+													"console.log(pm.response.text())",
+													"let jsonData = JSON.parse(responseBody);",
+													"",
+													"if(jsonData.token) {",
+													"    pm.collectionVariables.set('USER_TOKEN', jsonData.token);",
+													"    console.log(\"USER_TOKEN=\" + pm.collectionVariables.get(\"USER_TOKEN\"));",
+													"}",
+													"",
+													"if(jsonData.id) {",
+													"    pm.collectionVariables.set('USER_ID', jsonData.id);",
+													"    console.log(\"USER_ID=\" + pm.collectionVariables.get(\"USER_ID\"));",
+													"}"
+												],
+												"type": "text/javascript",
+												"packages": {}
+											}
+										},
+										{
+											"listen": "prerequest",
+											"script": {
+												"exec": [
+													"const username = \"usertestrf004\"",
+													"const password = \"usertestrf004\"",
+													"pm.collectionVariables.set('USERNAME', username);",
+													"pm.collectionVariables.set('PASSWORD', password);"
+												],
+												"type": "text/javascript",
+												"packages": {}
+											}
+										}
+									],
+									"request": {
+										"method": "POST",
+										"header": [],
+										"body": {
+											"mode": "raw",
+											"raw": "{\n    \"username\": \"{{USERNAME}}\",\n    \"password\": \"{{PASSWORD}}\"\n}",
+											"options": {
+												"raw": {
+													"language": "json"
+												}
+											}
+										},
+										"url": {
+											"raw": "{{BASE_PATH}}/users/auth",
+											"host": [
+												"{{BASE_PATH}}"
+											],
+											"path": [
+												"users",
+												"auth"
+											]
+										}
+									},
+									"response": []
+								}
+							]
+						},
+						{
+							"name": "Test RF-004",
+							"item": [
+								{
+									"name": "Verificar error de integración",
+									"event": [
+										{
+											"listen": "test",
+											"script": {
+												"exec": [
+													"console.log(pm.response.text())",
+													"let jsonData = JSON.parse(responseBody);",
+													"",
+													"pm.test(\"Status code is 503\", function () {",
+													"    pm.response.to.have.status(503);",
+													"});",
+													"tests[\"Should have msg\"] = jsonData.msg === \"El servicio está temporalmente fuera de servicio.\";"
+												],
+												"type": "text/javascript",
+												"packages": {}
+											}
+										},
+										{
+											"listen": "prerequest",
+											"script": {
+												"exec": [
+													"",
+													"const SIZES = [\"LARGE\", \"MEDIUM\", \"SMALL\"];",
+													"const FRAGILE_TYPES = [true, false]",
+													"",
+													"const description = pm.variables.replaceIn(\"{{$randomLoremWords}}\").toLowerCase();",
+													"const size = SIZES[Math.floor(Math.random() * SIZES.length)];",
+													"const fragile = FRAGILE_TYPES[Math.floor(Math.random() * FRAGILE_TYPES.length)];",
+													"const offer = pm.variables.replaceIn(\"{{$randomInt}}\");",
+													"",
+													"pm.collectionVariables.set('OFFER_DESCRIPTION', description);",
+													"pm.collectionVariables.set('OFFER_SIZE', size);",
+													"pm.collectionVariables.set('OFFER_FRAGILE', fragile);",
+													"pm.collectionVariables.set('OFFER_OFFER', offer);"
+												],
+												"type": "text/javascript",
+												"packages": {}
+											}
+										}
+									],
+									"request": {
+										"auth": {
+											"type": "bearer",
+											"bearer": [
+												{
+													"key": "token",
+													"value": "{{USER_TOKEN}}",
+													"type": "string"
+												}
+											]
+										},
+										"method": "POST",
+										"header": [],
+										"body": {
+											"mode": "raw",
+											"raw": "{\n    \"description\": \"{{OFFER_DESCRIPTION}}\",\n    \"size\": \"{{OFFER_SIZE}}\",\n    \"fragile\" : {{OFFER_FRAGILE}},\n    \"offer\": {{OFFER_OFFER}}\n}",
+											"options": {
+												"raw": {
+													"language": "json"
+												}
+											}
+										},
+										"url": {
+											"raw": "{{BASE_PATH}}/rf004/posts/{{POST_ID}}/offers",
+											"host": [
+												"{{BASE_PATH}}"
+											],
+											"path": [
+												"rf004",
+												"posts",
+												"{{POST_ID}}",
+												"offers"
+											]
+										}
+									},
+									"response": []
+								}
+							]
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Verificar Consistencia",
+			"item": [
+				{
+					"name": "Verificar estado de ofertas",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"console.log(pm.response.text())",
+									"let jsonData = JSON.parse(responseBody);",
+									"",
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"tests[\"Should exist 0 offers\"] = jsonData.count === 0"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						},
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									""
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{1_USER_TOKEN}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_PATH}}/offers/count",
+							"host": [
+								"{{BASE_PATH}}"
+							],
+							"path": [
+								"offers",
+								"count"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"requests": {},
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"requests": {},
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "BASE_PATH",
+			"value": "http://localhost:9000"
+		},
+		{
+			"key": "1_USER_EMAIL",
+			"value": ""
+		},
+		{
+			"key": "1_USER_USERNAME",
+			"value": ""
+		},
+		{
+			"key": "1_USER_PASSWORD",
+			"value": ""
+		},
+		{
+			"key": "1_USER_DNI",
+			"value": ""
+		},
+		{
+			"key": "1_USER_FULLNAME",
+			"value": ""
+		},
+		{
+			"key": "1_USER_PHONENUMBER",
+			"value": ""
+		},
+		{
+			"key": "USER_ID",
+			"value": ""
+		},
+		{
+			"key": "POST_EXPIREAT",
+			"value": ""
+		},
+		{
+			"key": "POST_ID",
+			"value": ""
+		},
+		{
+			"key": "USERNAME",
+			"value": ""
+		},
+		{
+			"key": "PASSWORD",
+			"value": ""
+		},
+		{
+			"key": "OFFER_DESCRIPTION",
+			"value": ""
+		},
+		{
+			"key": "OFFER_SIZE",
+			"value": ""
+		},
+		{
+			"key": "OFFER_FRAGILE",
+			"value": ""
+		},
+		{
+			"key": "OFFER_OFFER",
+			"value": ""
+		},
+		{
+			"key": "USER_TOKEN",
+			"value": ""
+		},
+		{
+			"key": "2_USER_EMAIL",
+			"value": ""
+		},
+		{
+			"key": "2_USER_USERNAME",
+			"value": ""
+		},
+		{
+			"key": "2_USER_PASSWORD",
+			"value": ""
+		},
+		{
+			"key": "2_USER_DNI",
+			"value": ""
+		},
+		{
+			"key": "2_USER_FULLNAME",
+			"value": ""
+		},
+		{
+			"key": "2_USER_PHONENUMBER",
+			"value": ""
+		},
+		{
+			"key": "USER_ID_2",
+			"value": ""
+		}
+	]
+}

@@ -2,8 +2,8 @@
 
 The endpoint validates the bearer token and the request body first, then
 runs the post-level preconditions. When every gate passes, it orchestrates
-the full offer creation flow: fetch the route, calculate the score, create
-the offer, persist the score (soft-fail), and return a 201 response.
+the full offer creation flow: create the offer, fetch the route and
+calculate the score, persist the score, and return a 201 response.
 """
 
 from fastapi import APIRouter, Depends, Request
@@ -69,16 +69,18 @@ def create_offer(
     Validates the bearer token and the request body, then checks the
     post-level preconditions (post exists, not owned by the caller, not
     expired). When every gate passes, orchestrates the full offer creation
-    flow (create offer, calculate score, persist score) and returns a 201
-    response. Error mapping:
+    flow (create offer, fetch the route and calculate the score, persist
+    the score) and returns a 201 response. Error mapping:
       - 403 empty body: missing bearer token
       - 401 empty body: invalid/expired token
       - 400 empty body: malformed request body (handled in ``main.py``)
-      - 404 empty body: the post does not exist (or its route is missing)
+      - 404 empty body: the post does not exist (or its route is missing;
+        in both cases no offer remains, the offer is compensated when the
+        route is missing)
       - 412 empty body: own post, or already expired post
       - 503 ``{"msg": ...}``: Users, Posts, Routes, Offers, or Scores
-        service unreachable (the offer is compensated when the score
-        stage fails)
+        service unreachable (when the failure happens after the offer was
+        created, the offer is first compensated)
       - 201: offer created and its score persisted
     """
     token = credentials.credentials if credentials is not None else None

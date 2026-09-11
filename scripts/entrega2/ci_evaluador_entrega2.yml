@@ -1,0 +1,520 @@
+name: Entrega 2 - Evaluador Implementación
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        required: true
+        description: 'Select the target environment'
+        options:
+          - student1
+          - student2
+          - student3
+          - student4
+          - tutor
+      execution:
+        type: choice
+        required: true
+        description: 'Select the execution mode'
+        options:
+          - run_all
+          - run_rf003
+          - run_rf004
+          - run_rf005
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+        description: 'Select the target environment'
+      execution:
+        type: string
+        required: true
+        description: 'Select the execution mode'
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      AWS_SESSION_TOKEN:
+        required: true
+jobs:
+  verify_entrega1:
+    environment: ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    name: Verify Entrega 1 still works
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Node.js
+      uses: actions/setup-node@v1
+      with:
+        node-version: 18
+        registry-url: https://registry.npmjs.org/
+    - name: Create evaluator folder
+      run: mkdir -p .evaluator
+    - name: Download validate scripts
+      run: curl -sSL -o .evaluator/entrega2_verify_entrega1_still_works.json https://raw.githubusercontent.com/MISW-4301-Desarrollo-Apps-en-la-Nube/proyecto-monitor/main/entrega2/verify_old_endpoints.json
+    - name: Checkout evaluator resources
+      uses: actions/checkout@v4
+      with:
+        repository: MISW-4301-Desarrollo-Apps-en-la-Nube/recursos-evaluador
+        ref: main
+        path: .evaluator-resources
+    - name: Connect to EKS cluster
+      id: setupK8s
+      uses: ./.evaluator-resources/.github/actions/connect-eks-cluster
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+    - name: Test entrega 1 still works
+      run: newman run ".evaluator/entrega2_verify_entrega1_still_works.json" --env-var BASE_PATH=$BASE_PATH --verbose --insecure
+  ########################################################
+  # Evaluate RF003
+  ########################################################
+  # This job evaluates the RF003 requirement by blocking each app and checking if the system behaves
+  evaluate_rf003:
+    environment: ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    name: Evaluate RF003
+    needs: verify_entrega1
+    if: success() && (inputs.execution == 'run_all' || inputs.execution == 'run_rf003')
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Node.js
+      uses: actions/setup-node@v1
+      with:
+        node-version: 18
+        registry-url: https://registry.npmjs.org/
+    - name: Create evaluator folder
+      run: mkdir -p .evaluator
+    - name: Download tests scripts
+      run: |
+        curl -sSL -o .evaluator/scale.sh https://raw.githubusercontent.com/MISW-4301-Desarrollo-Apps-en-la-Nube/proyecto-monitor/main/entrega2/scale.sh
+        chmod +x .evaluator/scale.sh
+        curl -sSL -o .evaluator/evaluate_rf003.json https://raw.githubusercontent.com/MISW-4301-Desarrollo-Apps-en-la-Nube/proyecto-monitor/main/entrega2/evaluate_rf003.json
+        curl -sSL -o .evaluator/evaluate_rf003_consistency.json https://raw.githubusercontent.com/MISW-4301-Desarrollo-Apps-en-la-Nube/proyecto-monitor/main/entrega2/evaluate_rf003_consistency.json
+    - name: Checkout evaluator resources
+      uses: actions/checkout@v4
+      with:
+        repository: MISW-4301-Desarrollo-Apps-en-la-Nube/recursos-evaluador
+        ref: main
+        path: .evaluator-resources
+    - name: Connect to EKS cluster
+      id: setupK8s
+      uses: ./.evaluator-resources/.github/actions/connect-eks-cluster
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+    - name: Verify RF003 is available
+      id: verify_rf003
+      if: always() && steps.setupK8s.outcome == 'success'
+      run: |
+        HTTP_CODE=$(curl -k -s -o /dev/null -w "%{http_code}" -I "$BASE_PATH/rf003/posts")
+        if [[ "$HTTP_CODE" == "405" || "$HTTP_CODE" == "200" ]]; then
+          echo "✅ RF003 is available at $BASE_PATH/rf003/posts"
+        else
+          echo "❌ RF003 is not available at $BASE_PATH/rf003/posts"
+          exit 1
+        fi
+    - name: Execute RF003 tests
+      id: run_rf003
+      if: always() && steps.verify_rf003.outcome == 'success'
+      run: |
+        newman run ".evaluator/evaluate_rf003.json" --env-var BASE_PATH=$BASE_PATH --verbose --insecure
+        echo "✅ RF003 tests finished successfully"
+    - name: Check RF003 consistency if Users App is unreachable
+      if: always() && steps.setupK8s.outcome == 'success' && steps.verify_rf003.outcome == 'success'
+      id: check_rf003_users
+      run: |
+        newman run ".evaluator/evaluate_rf003_consistency.json" --env-var BASE_PATH=$BASE_PATH --verbose --insecure --folder "Reset"
+        .evaluator/scale.sh users-app 0
+        newman run ".evaluator/evaluate_rf003_consistency.json" --env-var BASE_PATH=$BASE_PATH --env-var USER_TOKEN="FAKETOKEN" --verbose --insecure --folder "Test RF-003"
+    - name: Restore & Validate
+      id: restore_rf003_users
+      if: always() && steps.setupK8s.outcome == 'success' && steps.verify_rf003.outcome == 'success'
+      run: |
+        .evaluator/scale.sh users-app 1
+        kubectl wait --for=condition=ready pod -l app=users-app --timeout=120s
+        sleep 5
+        if [ "${{ steps.check_rf003_users.outcome }}" = "success" ]; then
+          newman run ".evaluator/evaluate_rf003_consistency.json" --env-var BASE_PATH=$BASE_PATH --verbose --insecure --folder "Verificar Consistencia"
+        else
+          echo "❌ Previous step failed, skipping restore validation"
+          exit 1
+        fi
+    - name: Check RF003 consistency if Routes App is unreachable
+      if: always() && steps.setupK8s.outcome == 'success' && steps.verify_rf003.outcome == 'success'
+      id: check_rf003_routes
+      run: |
+        newman run ".evaluator/evaluate_rf003_consistency.json" --env-var BASE_PATH=$BASE_PATH --verbose --insecure --folder "Reset"
+        .evaluator/scale.sh routes-app 0
+        newman run ".evaluator/evaluate_rf003_consistency.json" --env-var BASE_PATH=$BASE_PATH --verbose --insecure --folder "RF-003 Crear publicacion"
+    - name: Restore & Validate
+      id: restore_rf003_routes
+      if: always() && steps.setupK8s.outcome == 'success' && steps.verify_rf003.outcome == 'success'
+      run: |
+        .evaluator/scale.sh routes-app 1
+        kubectl wait --for=condition=ready pod -l app=routes-app --timeout=120s
+        sleep 5
+        if [ "${{ steps.check_rf003_routes.outcome }}" = "success" ]; then
+          newman run ".evaluator/evaluate_rf003_consistency.json" --env-var BASE_PATH=$BASE_PATH --verbose --insecure --folder "Verificar Consistencia"
+        else
+          echo "❌ Previous step failed, skipping restore validation"
+          exit 1
+        fi
+    - name: Check RF003 consistency if Posts App is unreachable
+      if: always() && steps.setupK8s.outcome == 'success' && steps.verify_rf003.outcome == 'success'
+      id: check_rf003_posts
+      run: |
+        newman run ".evaluator/evaluate_rf003_consistency.json" --env-var BASE_PATH=$BASE_PATH --insecure --folder "Reset"
+        .evaluator/scale.sh posts-app 0
+        newman run ".evaluator/evaluate_rf003_consistency.json" --env-var BASE_PATH=$BASE_PATH --verbose --insecure --folder "RF-003 Crear publicacion"
+    - name: Restore & Validate
+      id: restore_rf003_posts
+      if: always() && steps.setupK8s.outcome == 'success' && steps.verify_rf003.outcome == 'success'
+      run: |
+        .evaluator/scale.sh posts-app 1
+        kubectl wait --for=condition=ready pod -l app=posts-app --timeout=120s
+        sleep 5
+        if [ "${{ steps.check_rf003_posts.outcome }}" = "success" ]; then
+          newman run ".evaluator/evaluate_rf003_consistency.json" --env-var BASE_PATH=$BASE_PATH --verbose --insecure --folder "Verificar Consistencia"
+        else
+          echo "❌ Previous step failed, skipping restore validation"
+          exit 1
+        fi
+    - name: Evaluate results
+      if: always()
+      run: |
+        FAIL=0
+
+        if [ "${{ steps.run_rf003.outcome }}" = "success" ]; then
+          echo "✅ RF003 tests finished successfully"
+        else
+          echo "❌ RF003 tests failed!"
+          FAIL=1
+        fi
+
+        if [ "${{ steps.check_rf003_users.outcome }}" = "success" ] && [ "${{ steps.restore_rf003_users.outcome }}" = "success" ]; then
+          echo "✅ RF003 is consistent when Users App is unreachable."
+        else
+          echo "❌ RF003 is not consistent when Users App is unreachable"
+          FAIL=1
+        fi
+
+        if [ "${{ steps.check_rf003_routes.outcome }}" = "success" ] && [ "${{ steps.restore_rf003_routes.outcome }}" = "success" ]; then
+          echo "✅ RF003 is consistent when Routes App is unreachable."
+        else
+          echo "❌ RF003 is not consistent when Routes App is unreachable"
+          FAIL=1
+        fi
+
+        if [ "${{ steps.check_rf003_posts.outcome }}" = "success" ] && [ "${{ steps.restore_rf003_posts.outcome }}" = "success" ]; then
+          echo "✅ RF003 is consistent when Posts App is unreachable."
+        else
+          echo "❌ RF003 is not consistent when Posts App is unreachable"
+          FAIL=1
+        fi
+
+        if [ "$FAIL" = "1" ]; then
+          echo "❌ One or more consistency tests failed!"
+          exit 1
+        else
+          echo "✅ All consistency tests passed."
+        fi
+
+  ########################################################
+  # Evaluate RF004
+  ########################################################
+  # This job evaluates the RF004 requirement by blocking each app and checking if the system behaves
+  evaluate_rf004:
+    environment: ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    name: Evaluate RF004
+    needs: evaluate_rf003
+    if: always() && ((inputs.execution == 'run_all' && needs.evaluate_rf003.result != 'cancelled' && needs.evaluate_rf003.result != 'skipped') || inputs.execution == 'run_rf004')
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Node.js
+      uses: actions/setup-node@v1
+      with:
+        node-version: 18
+        registry-url: https://registry.npmjs.org/
+    - name: Create evaluator folder
+      run: mkdir -p .evaluator
+    - name: Download tests scripts
+      run: |
+        curl -sSL -o .evaluator/scale.sh https://raw.githubusercontent.com/MISW-4301-Desarrollo-Apps-en-la-Nube/proyecto-monitor/main/entrega2/scale.sh
+        chmod +x .evaluator/scale.sh
+        curl -sSL -o .evaluator/evaluate_rf004.json https://raw.githubusercontent.com/MISW-4301-Desarrollo-Apps-en-la-Nube/proyecto-monitor/main/entrega2/evaluate_rf004.json
+        curl -sSL -o .evaluator/evaluate_rf004_consistency.json https://raw.githubusercontent.com/MISW-4301-Desarrollo-Apps-en-la-Nube/proyecto-monitor/main/entrega2/evaluate_rf004_consistency.json
+    - name: Checkout evaluator resources
+      uses: actions/checkout@v4
+      with:
+        repository: MISW-4301-Desarrollo-Apps-en-la-Nube/recursos-evaluador
+        ref: main
+        path: .evaluator-resources
+    - name: Connect to EKS cluster
+      id: setupK8s
+      uses: ./.evaluator-resources/.github/actions/connect-eks-cluster
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+    - name: Verify RF004 is available
+      id: verify_rf004
+      if: always() && steps.setupK8s.outcome == 'success'
+      run: |
+        HTTP_CODE=$(curl -k -s -o /dev/null -w "%{http_code}" -I "$BASE_PATH/rf004/posts/bf8792d2-3097-11ee-be56-0242ac120002/offers")
+        if [[ "$HTTP_CODE" == "405" || "$HTTP_CODE" == "200" ]]; then
+          echo "✅ RF004 is available at $BASE_PATH/rf004/posts/xxxxx/offers"
+        else
+          echo "❌ RF004 is not available at $BASE_PATH/rf004/posts/xxxxx/offers"
+          exit 1
+        fi
+    - name: Execute RF004 tests
+      id: run_rf004
+      if: always() && steps.verify_rf004.outcome == 'success'
+      run: |
+        newman run ".evaluator/evaluate_rf004.json" --env-var BASE_PATH=$BASE_PATH --verbose --insecure
+        echo "✅ RF004 tests finished successfully"
+    - name: Check RF004 consistency if Users App is unreachable
+      if: always() && steps.setupK8s.outcome == 'success' && steps.verify_rf004.outcome == 'success'
+      id: check_rf004_users
+      run: |
+        newman run ".evaluator/evaluate_rf004_consistency.json" --env-var BASE_PATH=$BASE_PATH --verbose --insecure --folder "Reset"
+        .evaluator/scale.sh users-app 0
+        newman run ".evaluator/evaluate_rf004_consistency.json" --env-var BASE_PATH=$BASE_PATH --env-var USER_TOKEN="FAKETOKEN" --env-var POST_ID="bf8792d2-3097-11ee-be56-0242ac120002" --verbose --insecure --folder "Test RF-004"
+    - name: Restore & Validate
+      id: restore_rf004_users
+      if: always() && steps.setupK8s.outcome == 'success' && steps.verify_rf004.outcome == 'success'
+      run: |
+        .evaluator/scale.sh users-app 1
+        kubectl wait --for=condition=ready pod -l app=users-app --timeout=120s
+        sleep 5
+        if [ "${{ steps.check_rf004_users.outcome }}" = "success" ]; then
+          newman run ".evaluator/evaluate_rf004_consistency.json" --env-var BASE_PATH=$BASE_PATH --verbose --insecure --folder "Verificar Consistencia"
+        else
+          echo "❌ Previous step failed, skipping restore validation"
+          exit 1
+        fi
+    - name: Check RF004 consistency if Offers App is unreachable
+      if: always() && steps.setupK8s.outcome == 'success' && steps.verify_rf004.outcome == 'success'
+      id: check_rf004_offers
+      run: |
+        newman run ".evaluator/evaluate_rf004_consistency.json" --env-var BASE_PATH=$BASE_PATH --verbose --insecure --folder "Reset"
+        .evaluator/scale.sh offers-app 0
+        newman run ".evaluator/evaluate_rf004_consistency.json" --env-var BASE_PATH=$BASE_PATH --verbose --insecure --folder "RF-004 Crear oferta"
+    - name: Restore & Validate
+      id: restore_rf004_offers
+      if: always() && steps.setupK8s.outcome == 'success' && steps.verify_rf004.outcome == 'success'
+      run: |
+        .evaluator/scale.sh offers-app 1
+        kubectl wait --for=condition=ready pod -l app=offers-app --timeout=120s
+        sleep 5
+        if [ "${{ steps.check_rf004_offers.outcome }}" = "success" ]; then
+          newman run ".evaluator/evaluate_rf004_consistency.json" --env-var BASE_PATH=$BASE_PATH --verbose --insecure --folder "Verificar Consistencia"
+        else
+          echo "❌ Previous step failed, skipping restore validation"
+          exit 1
+        fi
+    - name: Check RF004 consistency if Posts App is unreachable
+      if: always() && steps.setupK8s.outcome == 'success' && steps.verify_rf004.outcome == 'success'
+      id: check_rf004_posts
+      run: |
+        newman run ".evaluator/evaluate_rf004_consistency.json" --env-var BASE_PATH=$BASE_PATH --insecure --folder "Reset"
+        newman run ".evaluator/evaluate_rf004_consistency.json" --env-var BASE_PATH=$BASE_PATH --insecure --folder "Crear Recursos"
+        .evaluator/scale.sh posts-app 0
+        newman run ".evaluator/evaluate_rf004_consistency.json" --env-var BASE_PATH=$BASE_PATH --env-var POST_ID="bf8792d2-3097-11ee-be56-0242ac120002" --verbose --insecure --folder "Sesion & RF-004"
+    - name: Restore & Validate
+      id: restore_rf004_posts
+      if: always() && steps.setupK8s.outcome == 'success' && steps.verify_rf004.outcome == 'success'
+      run: |
+        .evaluator/scale.sh posts-app 1
+        kubectl wait --for=condition=ready pod -l app=posts-app --timeout=120s
+        sleep 5
+        if [ "${{ steps.check_rf004_posts.outcome }}" = "success" ]; then
+          newman run ".evaluator/evaluate_rf004_consistency.json" --env-var BASE_PATH=$BASE_PATH --verbose --insecure --folder "Verificar Consistencia"
+        else
+          echo "❌ Previous step failed, skipping restore validation"
+          exit 1
+        fi
+    - name: Evaluate results
+      if: always()
+      run: |
+        FAIL=0
+
+        if [ "${{ steps.run_rf004.outcome }}" = "success" ]; then
+          echo "✅ RF004 tests finished successfully"
+        else
+          echo "❌ RF004 tests failed!"
+          FAIL=1
+        fi
+
+        if [ "${{ steps.check_rf004_users.outcome }}" = "success" ] && [ "${{ steps.restore_rf004_users.outcome }}" = "success" ]; then
+          echo "✅ RF004 is consistent when Users App is unreachable."
+        else
+          echo "❌ RF004 is not consistent when Users App is unreachable"
+          FAIL=1
+        fi
+
+        if [ "${{ steps.check_rf004_offers.outcome }}" = "success" ] && [ "${{ steps.restore_rf004_offers.outcome }}" = "success" ]; then
+          echo "✅ RF004 is consistent when Offers App is unreachable."
+        else
+          echo "❌ RF004 is not consistent when Offers App is unreachable"
+          FAIL=1
+        fi
+
+        if [ "${{ steps.check_rf004_posts.outcome }}" = "success" ] && [ "${{ steps.restore_rf004_posts.outcome }}" = "success" ]; then
+          echo "✅ RF004 is consistent when Posts App is unreachable."
+        else
+          echo "❌ RF004 is not consistent when Posts App is unreachable"
+          FAIL=1
+        fi
+
+        if [ "$FAIL" = "1" ]; then
+          echo "❌ One or more consistency tests failed!"
+          exit 1
+        else
+          echo "✅ All consistency tests passed."
+        fi
+
+  ########################################################
+  # Evaluate RF005
+  ########################################################
+  # This job evaluates the RF005 requirement by blocking each app and checking if the system behaves
+  evaluate_rf005:
+    environment: ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    name: Evaluate RF005
+    needs: evaluate_rf004
+    if: always() && ((inputs.execution == 'run_all' && needs.evaluate_rf004.result != 'cancelled' && needs.evaluate_rf004.result != 'skipped') || inputs.execution == 'run_rf005')
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Node.js
+      uses: actions/setup-node@v1
+      with:
+        node-version: 18
+        registry-url: https://registry.npmjs.org/
+    - name: Create evaluator folder
+      run: mkdir -p .evaluator
+    - name: Download tests scripts
+      run: |
+        curl -sSL -o .evaluator/scale.sh https://raw.githubusercontent.com/MISW-4301-Desarrollo-Apps-en-la-Nube/proyecto-monitor/main/entrega2/scale.sh
+        chmod +x .evaluator/scale.sh
+        curl -sSL -o .evaluator/evaluate_rf005.json https://raw.githubusercontent.com/MISW-4301-Desarrollo-Apps-en-la-Nube/proyecto-monitor/main/entrega2/evaluate_rf005.json
+        curl -sSL -o .evaluator/evaluate_rf005_consistency.json https://raw.githubusercontent.com/MISW-4301-Desarrollo-Apps-en-la-Nube/proyecto-monitor/main/entrega2/evaluate_rf005_consistency.json
+    - name: Checkout evaluator resources
+      uses: actions/checkout@v4
+      with:
+        repository: MISW-4301-Desarrollo-Apps-en-la-Nube/recursos-evaluador
+        ref: main
+        path: .evaluator-resources
+    - name: Connect to EKS cluster
+      id: setupK8s
+      uses: ./.evaluator-resources/.github/actions/connect-eks-cluster
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+    - name: Verify RF005 is available
+      id: verify_rf005
+      if: always() && steps.setupK8s.outcome == 'success'
+      run: |
+        HTTP_CODE=$(curl -k -s -o /dev/null -w "%{http_code}" -I "$BASE_PATH/rf005/posts/bf8792d2-3097-11ee-be56-0242ac120002")
+        if [[ "$HTTP_CODE" == "405" || "$HTTP_CODE" == "200" ]]; then
+          echo "✅ RF005 is available at $BASE_PATH/rf005/posts"
+        else
+          echo "❌ RF005 is not available at $BASE_PATH/rf005/posts"
+          exit 1
+        fi
+    - name: Execute RF005 tests
+      id: run_rf005
+      if: always() && steps.verify_rf005.outcome == 'success'
+      run: |
+        newman run ".evaluator/evaluate_rf005.json" --env-var BASE_PATH=$BASE_PATH --verbose --insecure
+        echo "✅ RF005 tests finished successfully"
+    - name: Check RF005 consistency if Users App is unreachable
+      if: always() && steps.setupK8s.outcome == 'success' && steps.verify_rf005.outcome == 'success'
+      id: check_rf005_users
+      run: |
+        newman run ".evaluator/evaluate_rf005_consistency.json" --env-var BASE_PATH=$BASE_PATH --verbose --insecure --folder "Reset"
+        .evaluator/scale.sh users-app 0
+        newman run ".evaluator/evaluate_rf005_consistency.json" --env-var BASE_PATH=$BASE_PATH --env-var USER_TOKEN="FAKETOKEN" --env-var POST_ID="bf8792d2-3097-11ee-be56-0242ac120002" --verbose --insecure --folder "Test RF-005"
+    - name: Restore & Validate
+      id: restore_rf005_users
+      if: always() && steps.setupK8s.outcome == 'success' && steps.verify_rf005.outcome == 'success'
+      run: |
+        .evaluator/scale.sh users-app 1
+        kubectl wait --for=condition=ready pod -l app=users-app --timeout=120s
+        sleep 5
+    - name: Check RF005 consistency if Posts App is unreachable
+      if: always() && steps.setupK8s.outcome == 'success' && steps.verify_rf005.outcome == 'success'
+      id: check_rf005_posts
+      run: |
+        newman run ".evaluator/evaluate_rf005_consistency.json" --env-var BASE_PATH=$BASE_PATH --insecure --folder "Reset"
+        newman run ".evaluator/evaluate_rf005_consistency.json" --env-var BASE_PATH=$BASE_PATH --insecure --folder "Crear Recursos"
+        .evaluator/scale.sh posts-app 0
+        newman run ".evaluator/evaluate_rf005_consistency.json" --env-var BASE_PATH=$BASE_PATH --env-var POST_ID="bf8792d2-3097-11ee-be56-0242ac120002" --verbose --insecure --folder "Sesion & RF-005"
+    - name: Restore & Validate
+      id: restore_rf005_posts
+      if: always() && steps.setupK8s.outcome == 'success' && steps.verify_rf005.outcome == 'success'
+      run: |
+        .evaluator/scale.sh posts-app 1
+        kubectl wait --for=condition=ready pod -l app=posts-app --timeout=120s
+        sleep 5
+    - name: Check RF005 consistency if Offers App is unreachable
+      if: always() && steps.setupK8s.outcome == 'success' && steps.verify_rf005.outcome == 'success'
+      id: check_rf005_offers
+      run: |
+        newman run ".evaluator/evaluate_rf005_consistency.json" --env-var BASE_PATH=$BASE_PATH --verbose --insecure --folder "Reset"
+        newman run ".evaluator/evaluate_rf005_consistency.json" --env-var BASE_PATH=$BASE_PATH --insecure --folder "Crear Recursos"
+        .evaluator/scale.sh offers-app 0
+        newman run ".evaluator/evaluate_rf005_consistency.json" --env-var BASE_PATH=$BASE_PATH --verbose --insecure --folder "Post & Sesion & RF-005"
+    - name: Restore & Validate
+      id: restore_rf005_offers
+      if: always() && steps.setupK8s.outcome == 'success' && steps.verify_rf005.outcome == 'success'
+      run: |
+        .evaluator/scale.sh offers-app 1
+        kubectl wait --for=condition=ready pod -l app=offers-app --timeout=120s
+        sleep 5
+    - name: Evaluate results
+      if: always()
+      run: |
+        FAIL=0
+
+        if [ "${{ steps.run_rf005.outcome }}" = "success" ]; then
+          echo "✅ RF005 tests finished successfully"
+        else
+          echo "❌ RF005 tests failed!"
+          FAIL=1
+        fi
+
+        if [ "${{ steps.check_rf005_users.outcome }}" = "success" ] && [ "${{ steps.restore_rf005_users.outcome }}" = "success" ]; then
+          echo "✅ RF005 is consistent when Users App is unreachable."
+        else
+          echo "❌ RF005 is not consistent when Users App is unreachable"
+          FAIL=1
+        fi
+
+        if [ "${{ steps.check_rf005_offers.outcome }}" = "success" ] && [ "${{ steps.restore_rf005_offers.outcome }}" = "success" ]; then
+          echo "✅ RF005 is consistent when Offers App is unreachable."
+        else
+          echo "❌ RF005 is not consistent when Offers App is unreachable"
+          FAIL=1
+        fi
+
+        if [ "${{ steps.check_rf005_posts.outcome }}" = "success" ] && [ "${{ steps.restore_rf005_posts.outcome }}" = "success" ]; then
+          echo "✅ RF005 is consistent when Posts App is unreachable."
+        else
+          echo "❌ RF005 is not consistent when Posts App is unreachable"
+          FAIL=1
+        fi
+
+        if [ "$FAIL" = "1" ]; then
+          echo "❌ One or more consistency tests failed!"
+          exit 1
+        else
+          echo "✅ All consistency tests passed."
+        fi

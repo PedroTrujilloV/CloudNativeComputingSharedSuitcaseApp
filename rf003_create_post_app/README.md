@@ -248,12 +248,23 @@ poetry run pytest --cov=src --cov-fail-under=70
   post-stage 503, pre-existing route preserved, compensation failure not
   masking the 503, business 412 not compensated) and the router
   (403/401/400/412/503/201 paths, including 503-with-rollback).
+- **Consistency integration tests**
+  (`tests/unit/adapters/http/test_rf003_consistency_integration.py`)
+  exercise the full request path with the real HTTP clients over a mock
+  transport: a Posts outage mid flow answers 503 with the standard
+  message and the route created by the request is deleted (no orphan
+  remains), a Routes outage answers 503 with no write at all, a
+  pre existing route is preserved when the Posts stage fails (it was not
+  created by the request, so it is not compensated), and the happy path
+  creates both the route and the post.
 - **Integration tests** (`tests/api/test_integration_rf003.py`) exercise the
   orchestrator against the **real** Users/Routes/Posts services in Docker;
   they are skipped automatically when the services are not reachable
   (`/rf003/ping` probe).
 - A Postman collection for manual verification lives in
-  `tests/api/evaluate_rf003.json`.
+  `tests/api/evaluate_rf003.json`, and a dedicated consistency collection
+  lives in `tests/api/evaluate_rf003_consistency.json` (the same files the
+  grader runs, also kept under `scripts/entrega2/`).
 
 ## Run with Docker
 
@@ -437,3 +448,49 @@ asserts its expected status code and message. For the 503 request, stop
 `posts-app` first and afterwards query the Routes service for the flightId
 to confirm the compensating deletion (see *Manual verification: consistency
 / rollback on a mid-flow outage* above).
+
+### Manual verification with Postman (consistency collection, newman)
+
+The consistency acceptance criteria are covered by
+`tests/api/evaluate_rf003_consistency.json` (the same file the grader
+runs). It needs a single environment variable, `BASE_PATH`, pointing at
+the URL prefix that routes to the apps (the ingress path in the cluster,
+or a local fan out proxy on `http://127.0.0.1:9001` for local runs). Each
+outage scenario follows the same three steps: run the **Reset** folder,
+stop (or scale to zero) one downstream service, run the scenario folder,
+then restore the service and run **Verificar Consistencia** to assert the
+leftover count is zero.
+
+```bash
+# Scenario 1: Users down (auth gate, no writes possible)
+newman run tests/api/evaluate_rf003_consistency.json -e env.json --folder "Reset"
+# stop users-app (kill the process, or kubectl scale deployment users-app --replicas=0)
+newman run tests/api/evaluate_rf003_consistency.json -e env.json \
+  --env-var USER_TOKEN=FAKETOKEN --folder "Test RF-003"
+# -> 503 {"msg": "El servicio está temporalmente fuera de servicio."}
+# restore users-app, then:
+newman run tests/api/evaluate_rf003_consistency.json -e env.json --folder "Verificar Consistencia"
+# -> posts/count == 0
+
+# Scenario 2: Routes down (no route can be resolved, no writes possible)
+newman run tests/api/evaluate_rf003_consistency.json -e env.json --folder "Reset"
+# stop routes-app
+newman run tests/api/evaluate_rf003_consistency.json -e env.json --folder "RF-003 Crear publicacion"
+# -> 503 with the standard message
+# restore routes-app, then run "Verificar Consistencia" (posts/count == 0)
+
+# Scenario 3: Posts down mid flow (the route was already created, so the
+# orchestrator must compensate it)
+newman run tests/api/evaluate_rf003_consistency.json -e env.json --folder "Reset"
+# stop posts-app
+newman run tests/api/evaluate_rf003_consistency.json -e env.json --folder "RF-003 Crear publicacion"
+# -> 503 with the standard message
+# restore posts-app, then run "Verificar Consistencia":
+# -> routes/count == 0 (the route created mid flow was deleted) and posts/count == 0
+```
+
+`env.json` is a newman environment file with the variables the collection
+uses (at minimum `BASE_PATH`, plus the user credentials and the flight
+dates). The grader runs exactly these folders against the deployed
+cluster, so a green local run with the same folder order is the manual
+equivalent of the graded check.

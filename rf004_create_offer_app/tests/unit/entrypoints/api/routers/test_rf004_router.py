@@ -21,6 +21,7 @@ from entrypoints.api.main import app
 from errors import (
     OffersServiceUnavailableError,
     PostsServiceUnavailableError,
+    RouteNotFoundError,
     RoutesServiceUnavailableError,
     ScoresServiceUnavailableError,
     UsersServiceUnavailableError,
@@ -407,3 +408,36 @@ def test_routes_service_unavailable_returns_503(client: TestClient):
     assert response.json() == {
         "msg": "El servicio está temporalmente fuera de servicio."
     }
+
+
+def test_missing_route_returns_404_empty_body(client: TestClient):
+    """A post whose route does not exist is a 404 (empty body)."""
+    client.fake_posts.posts[POST_ID] = valid_post()
+
+    class MissingRoutes:
+        def get_route(self, route_id):
+            raise RouteNotFoundError(route_id)
+
+    fake_use_case = CreateOfferUseCase(
+        offers=MagicMock(), routes=MissingRoutes(), scores=MagicMock()
+    )
+
+    app.dependency_overrides[get_validate_token_use_case] = (
+        lambda: ValidateTokenUseCase(user_validation=client.fake_users)
+    )
+    app.dependency_overrides[get_offer_preconditions_use_case] = (
+        lambda: OfferPreconditionsUseCase(posts=client.fake_posts)
+    )
+    app.dependency_overrides[get_create_offer_use_case] = (
+        lambda: fake_use_case
+    )
+
+    try:
+        response = client.post(URL, json=valid_payload(), headers=AUTH)
+    finally:
+        app.dependency_overrides.pop(get_validate_token_use_case, None)
+        app.dependency_overrides.pop(get_offer_preconditions_use_case, None)
+        app.dependency_overrides.pop(get_create_offer_use_case, None)
+
+    assert response.status_code == 404
+    assert response.text == ""

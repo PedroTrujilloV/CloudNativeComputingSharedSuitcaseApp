@@ -1,7 +1,6 @@
 # Kubernetes deployment for offers_app
 # Minikube: app + PostgreSQL (ephemeral emptyDir)
 # Namespace: default
-# DB credentials: managed via AWS Secrets Manager by External Secrets Operator
 #
 # Usage (from repository root):
 #   kubectl apply -f k8s/offers-app.yaml
@@ -35,33 +34,16 @@ spec:
               value: "INFO"
             - name: DB_DRIVER
               value: "postgresql"
-            # Local minikube: all DB values from offers-app-secrets (own DB pod)
-            # AWS production: use k8s/secrets-aws-shared-db.yaml model instead
             - name: DB_HOST
-              valueFrom:
-                secretKeyRef:
-                  name: offers-app-secrets
-                  key: DB_HOST
+              value: "offers-db-service"
             - name: DB_PORT
-              valueFrom:
-                secretKeyRef:
-                  name: offers-app-secrets
-                  key: DB_PORT
+              value: "5432"
             - name: DB_NAME
-              valueFrom:
-                secretKeyRef:
-                  name: offers-app-secrets
-                  key: DB_NAME
+              value: "offers_db"
             - name: DB_USER
-              valueFrom:
-                secretKeyRef:
-                  name: offers-app-secrets
-                  key: DB_USER
+              value: "offers_user"
             - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: offers-app-secrets
-                  key: DB_PASSWORD
+              value: "offers_pass"
           livenessProbe:
             httpGet:
               path: /offers/ping

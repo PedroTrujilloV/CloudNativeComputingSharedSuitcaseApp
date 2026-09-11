@@ -1,12 +1,15 @@
 """Core RF-003 orchestration: route find-or-create + post creation.
 
 Flow (per ``docs/diagrams/rf003-sequence.puml``):
-  1. Resolve the route by ``flightId`` (reuse it when it exists, discarding
-     the submitted route field values; otherwise create it).
-  2. Validate the post ``expireAt`` against now and the route's
-     ``plannedStartDate``.
-  3. Reject the request when the user already has a post for the route.
-  4. Create the post and shape the documented 201 response.
+  1. Look up the route by ``flightId`` (reuse it when it exists,
+     discarding the submitted route field values).
+  2. Validate the journey dates (when the route must be created) and the
+     post ``expireAt`` against now and the effective ``plannedStartDate``.
+     Rejections here happen *before* any write, so a 412 never leaves a
+     partially created route behind.
+  3. Create the route when it did not exist yet.
+  4. Reject the request when the user already has a post for the route.
+  5. Create the post and shape the documented 201 response.
 
 Consistency (saga compensation, see ``docs/solution-patterns.md``):
   The flow performs two writes on two independently owned stores (Routes,
@@ -31,6 +34,7 @@ from errors import (
     DuplicatePostError,
     ExpireAtInvalidError,
     PostsServiceUnavailableError,
+    RouteDatesInvalidError,
     RoutesServiceUnavailableError,
 )
 
@@ -62,9 +66,49 @@ class CreatePostUseCase:
                 is raised after a new route was created, the compensating
                 route deletion has already been attempted (and logged).
         """
-        route, route_created = self._resolve_route(payload)
+        existing = self._routes.find_by_flight_id(payload.flightId)
+        if existing is not None:
+            # The submitted route field values are discarded; the existing
+            # route is reused as-is (its dates were validated when it was
+            # created, so only the post expireAt is checked here).
+            logger.info(
+                "RF003: reusing existing route %s for flightId=%s",
+                existing.id,
+                payload.flightId,
+            )
+            route = existing
+            planned_start = existing.plannedStartDate
+            route_created = False
+        else:
+            # Validate the journey dates BEFORE writing so a 412 answer
+            # never leaves a route behind (consistency requirement).
+            self._validate_route_dates(
+                payload.plannedStartDate, payload.plannedEndDate
+            )
+            planned_start = payload.plannedStartDate
+            route = None
+            route_created = True
+
+        self._validate_expire_at(payload.expireAt, planned_start)
+
+        if route is None:
+            route = self._routes.create_route(
+                flight_id=payload.flightId,
+                source_airport_code=payload.origin.airportCode,
+                source_country=payload.origin.country,
+                destiny_airport_code=payload.destiny.airportCode,
+                destiny_country=payload.destiny.country,
+                bag_cost=payload.bagCost,
+                planned_start_date=payload.plannedStartDate,
+                planned_end_date=payload.plannedEndDate,
+            )
+            logger.info(
+                "RF003: created new route %s for flightId=%s",
+                route.id,
+                payload.flightId,
+            )
+
         try:
-            self._validate_expire_at(payload.expireAt, route.plannedStartDate)
             self._check_duplicate(route, user)
             created = self._posts.create_post(
                 route_id=route.id, user_id=user.id, expire_at=payload.expireAt
@@ -78,38 +122,20 @@ class CreatePostUseCase:
             raise
         return self._build_response(user, payload, route, created)
 
-    def _resolve_route(self, payload: RF003CreatePostRequest) -> tuple[RouteInfo, bool]:
-        """Find the route by flightId or create it with the submitted values.
+    @staticmethod
+    def _validate_route_dates(planned_start: datetime, planned_end: datetime) -> None:
+        """Reject journey dates exactly like ``routes_app`` does (HTTP 412).
 
-        Returns the route plus a flag indicating whether it was created by
-        this request (only such routes are eligible for compensation).
+        Mirrors ``routes_app``'s ``validate_route_dates``: both dates must be
+        in the future and the end date must be strictly after the start
+        date. Validating before the route is written guarantees that a 412
+        answer never persists a route (see module docstring).
         """
-        existing = self._routes.find_by_flight_id(payload.flightId)
-        if existing is not None:
-            # The submitted route field values are discarded; the existing
-            # route is reused as-is.
-            logger.info(
-                "RF003: reusing existing route %s for flightId=%s",
-                existing.id,
-                payload.flightId,
-            )
-            return existing, False
-        route = self._routes.create_route(
-            flight_id=payload.flightId,
-            source_airport_code=payload.origin.airportCode,
-            source_country=payload.origin.country,
-            destiny_airport_code=payload.destiny.airportCode,
-            destiny_country=payload.destiny.country,
-            bag_cost=payload.bagCost,
-            planned_start_date=payload.plannedStartDate,
-            planned_end_date=payload.plannedEndDate,
-        )
-        logger.info(
-            "RF003: created new route %s for flightId=%s",
-            route.id,
-            payload.flightId,
-        )
-        return route, True
+        now = _ensure_naive_utc(datetime.now(timezone.utc))
+        start = _ensure_naive_utc(planned_start)
+        end = _ensure_naive_utc(planned_end)
+        if start < now or end < now or end <= start:
+            raise RouteDatesInvalidError("Las fechas del trayecto no son válidas")
 
     @staticmethod
     def _validate_expire_at(expire_at: datetime, planned_start: datetime) -> None:

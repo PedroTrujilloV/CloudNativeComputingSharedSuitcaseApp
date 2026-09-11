@@ -1,81 +1,143 @@
-  team:
-    name: 202614-grupo33-proyecto
-    members:
-        - user: pe.trujillo@uniandes.edu.co
-          percentage: 100
-  board: "https://github.com/orgs/MISW-4301-Desarrollo-Apps-en-la-Nube/projects/370/views/1"
-  docs: "https://fluffy-disco-nyww85v.pages.github.io/"
-  # Nombres de los stacks de terraform que se despliegan y
-  # destruyen en el orden en que están descritos en esta lista. Por cada
-  # nombre debe existir tanto terraform/stacks/<nombre>/ como
-  # terraform/environments/<ambiente>/<nombre>/ (con backend.tfvars y
-  # terraform.tfvars). Ambas carpetas, terraform/stacks/ y
-  # terraform/environments/, son obligatorias con esos nombres exactos.
-  tf_stacks:
-    # Debe existir como terraform/stacks/apps/ y terraform/environments/<ambiente>/apps/
-    # (con backend.tfvars y terraform.tfvars). Si se añaden más stacks, listarlos
-    # aquí en el orden de despliegue (la destrucción se aplica en orden inverso).
-    # - 
-    - apps
-  # Ambiente student1 cuyos backend.tfvars/terraform.tfvars
-  # se usan como base para el ambiente `tutor`.
-  default_env: student1
-  # Carpetas con manifiestos de k8s (*.yml/*.yaml) que aplican esos mismos
-  # pipelines, también en el orden en que deben aplicarse.
-  k8s_manifests:
-    - k8s
-  # Imágenes que construye y sube a ECR el pipeline ci_entrega2_deploy.yml
-  # antes de aplicar k8s_manifests. Una entrada por cada aplicación desplegada.
-  apps:
-    - users_app:
-        folder: users_app
-        image_name: users-app
-        image_tag: v0.0.0
-        authors:
-          - pe.trujillo@uniandes.edu.co
-    - posts_app:
-        folder: posts_app
-        image_name: posts-app
-        image_tag: v0.0.0
-        authors:
-          - pe.trujillo@uniandes.edu.co
-    - offers_app:
-        folder: offers_app
-        image_name: offers-app
-        image_tag: v0.0.0
-        authors:
-          - pe.trujillo@uniandes.edu.co
-    - routes_app:
-        folder: routes_app
-        image_name: routes-app
-        image_tag: v0.0.0
-        authors:
-          - pe.trujillo@uniandes.edu.co
-    - scores_app:
-        folder: scores_app
-        image_name: scores-app
-        image_tag: v0.0.0
-        authors:
-          - pe.trujillo@uniandes.edu.co
-    # Componentes de orquestación: una entrada por cada requirement +
-    # caso de uso que orquesta las apps anteriores (naming: <rf-xxx>_<use_case>_app).
-    # Los nombres de carpeta/imagen son provisionales hasta que Epic G estabilice
-    # el folder real y el build de la imagen (Dockerfile + manifiesto de k8s).
-    - rf003_create_post_app:
-        folder: rf003_create_post_app
-        image_name: rf003-create-post-app
-        image_tag: v0.0.0
-        authors:
-          - pe.trujillo@uniandes.edu.co
-    - rf004_create_offer_app:
-        folder: rf004_create_offer_app
-        image_name: rf004-create-offer-app
-        image_tag: v0.0.0
-        authors:
-          - pe.trujillo@uniandes.edu.co
-    - rf005_query_post_app:
-        folder: rf005_query_post_app
-        image_name: rf005-query-post-app
-        image_tag: v0.0.0
-        authors:
-          - pe.trujillo@uniandes.edu.co
+team:
+  name: 202614-grupo33-proyecto
+  members:
+    - user: pe.trujillo@uniandes.edu.co
+      percentage: 100
+board: "https://github.com/orgs/MISW-4301-Desarrollo-Apps-en-la-Nube/projects/370/views/1"
+docs: "https://fluffy-disco-nyww85v.pages.github.io/"
+# Claves de nivel superior que lee el pipeline ci_entrega1_evaluador_k8s.yml
+# (yq '.<app>.folder' / '.<app>.image_name' / '.<app>.image_tag') para
+# construir las apps legacy en Minikube. Los nombres de imagen usan guion
+# bajo y coinciden con los manifiestos de k8s/entrega1_k8s/ (despliegue
+# legacy). No los confundir con la lista 'apps' de abajo, que usa guiones y
+# alimenta el pipeline ci_entrega2_deploy.yml (AWS/ECR + k8s/).
+users_app:
+  folder: users_app
+  image_name: users_app
+  image_tag: v0.0.0
+  authors:
+    - pe.trujillo@uniandes.edu.co
+posts_app:
+  folder: posts_app
+  image_name: posts_app
+  image_tag: v0.0.0
+  authors:
+    - pe.trujillo@uniandes.edu.co
+offers_app:
+  folder: offers_app
+  image_name: offers_app
+  image_tag: v0.0.0
+  authors:
+    - pe.trujillo@uniandes.edu.co
+routes_app:
+  folder: routes_app
+  image_name: routes_app
+  image_tag: v0.0.0
+  authors:
+    - pe.trujillo@uniandes.edu.co
+# scores_app:
+#   folder: scores_app
+#   image_name: scores-app
+#   image_tag: v0.0.0
+#   authors:
+#     - pe.trujillo@uniandes.edu.co
+# Nombres de los stacks de terraform que se despliegan y
+# destruyen en el orden en que están descritos en esta lista. Por cada
+# nombre debe existir tanto terraform/stacks/<nombre>/ como
+# terraform/environments/<ambiente>/<nombre>/ (con backend.tfvars y
+# terraform.tfvars). Ambas carpetas, terraform/stacks/ y
+# terraform/environments/, son obligatorias con esos nombres exactos.
+tf_stacks:
+  # Debe existir como terraform/stacks/apps/ y terraform/environments/<ambiente>/apps/
+  # (con backend.tfvars y terraform.tfvars). Si se añaden más stacks, listarlos
+  # aquí en el orden de despliegue (la destrucción se aplica en orden inverso).
+  # [storage] S3 bucket for all apps and orchestrators. A bucket must be created manually in AWS before running the pipeline for the first time.
+  # - 0_storage
+  # [database] Shared PostgreSQL RDS instance + Secrets Manager secret + per-app schema scripts table.
+  - 1_database
+  # [registry] ECR repos for all apps and orchestrators.
+  - 2_registry
+  # [eks] Shared EKS cluster + per-app namespace + per-app service account + per-app role binding.
+  - eks
+# Ambiente student1 cuyos backend.tfvars/terraform.tfvars
+# se usan como base para el ambiente `tutor`.
+default_env: student1
+# Carpetas con manifiestos de k8s (*.yml) que aplica el pipeline
+# ci_entrega2_deploy.yml (AWS/EKS), en el orden en que deben aplicarse.
+#
+# ORDEN DE DESPLIEGUE (deployment order):
+#   - k8s_entrega2/ (despliegue de Entrega 2, 8 servicios + Ingress):
+#     el pipeline ci_entrega2_deploy.yml aplica los archivos *.yml de esta
+#     carpeta en orden alfabetico; por eso el nombre de cada archivo
+#     codifica su posicion: secrets (00) -> shared db (15) -> apps (20) ->
+#     ingress (zz, siempre al final porque enruta a todos los services anteriores).
+#     (20) -> ingress (zz, siempre al final porque enruta a todos los
+#     services anteriores).
+#
+# DESPLIEGUE LEGACY (Entrega 1, evaluado en GitHub/Minikube):
+#   - k8s/entrega1_k8s/ contiene los manifiestos legacy (*.yaml) de las
+#     4 apps originales (users_app, posts_app, offers_app, routes_app, con
+#     imagenes de guion bajo) y sus NetworkPolicies. NO va en k8s_manifests:
+#     el pipeline ci_entrega1_evaluador_k8s.yml (GitHub) aplica
+#     recursivamente `kubectl apply -f k8s` y construye esas imagenes solo
+#     para ese evaluador. Por eso k8s/ solo contiene la carpeta
+#     entrega1_k8s/ y el despliegue de Entrega 2 vive en su propia carpeta
+#     (k8s_entrega2/): los dos despliegues definen recursos con el mismo
+#     nombre (users-app, users-app-service, users-db, ...) con imagenes
+#     distintas, y no deben aplicarse juntos en el mismo cluster.
+k8s_manifests:
+  # - k8s
+  - k8s_entrega2
+# Imágenes que construye y sube a ECR el pipeline ci_entrega2_deploy.yml
+# antes de aplicar k8s_manifests. Una entrada por cada aplicación desplegada.
+apps:
+  - users_app:
+      folder: users_app
+      image_name: users-app
+      image_tag: v0.0.0
+      authors:
+        - pe.trujillo@uniandes.edu.co
+  - posts_app:
+      folder: posts_app
+      image_name: posts-app
+      image_tag: v0.0.0
+      authors:
+        - pe.trujillo@uniandes.edu.co
+  - offers_app:
+      folder: offers_app
+      image_name: offers-app
+      image_tag: v0.0.0
+      authors:
+        - pe.trujillo@uniandes.edu.co
+  - routes_app:
+      folder: routes_app
+      image_name: routes-app
+      image_tag: v0.0.0
+      authors:
+        - pe.trujillo@uniandes.edu.co
+  - scores_app:
+      folder: scores_app
+      image_name: scores-app
+      image_tag: v0.0.0
+      authors:
+        - pe.trujillo@uniandes.edu.co
+  # Componentes de orquestación: una entrada por cada requirement +
+  # caso de uso que orquesta las apps anteriores (naming: <rf-xxx>_<use_case>_app).
+  - rf003_create_post_app:
+      folder: rf003_create_post_app
+      image_name: rf003-create-post-app
+      image_tag: v0.0.0
+      authors:
+        - pe.trujillo@uniandes.edu.co
+  - rf004_create_offer_app:
+      folder: rf004_create_offer_app
+      image_name: rf004-create-offer-app
+      image_tag: v0.0.0
+      authors:
+        - pe.trujillo@uniandes.edu.co
+  - rf005_query_post_app:
+      folder: rf005_query_post_app
+      image_name: rf005-query-post-app
+      image_tag: v0.0.0
+      authors:
+        - pe.trujillo@uniandes.edu.co

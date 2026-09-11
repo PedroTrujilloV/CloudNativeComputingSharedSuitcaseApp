@@ -131,8 +131,8 @@ def test_execute_small_size_calculates_correct_score():
     assert scores.upsert_calls == [{"offerId": "offer-3", "score": expected_score}]
 
 
-def test_execute_routes_unavailable_hard_fails():
-    """When the Routes service is unavailable, the error propagates (the router answers 503)."""
+def test_execute_routes_unavailable_compensates_and_propagates():
+    """When the Routes service is unavailable after the offer was created, the offer is deleted (compensation) and the error propagates (the router answers 503)."""
     offers = FakeOffers(offer_result={"id": "offer-4", "userId": "user-1", "createdAt": datetime.now(timezone.utc).isoformat()})
 
     class FailingRoutes:
@@ -146,8 +146,35 @@ def test_execute_routes_unavailable_hard_fails():
     with pytest.raises(RoutesServiceUnavailableError):
         use_case.execute(post=VALID_POST, user_id="user-1", payload=VALID_PAYLOAD)
 
-    # The offer was never created and no score was persisted.
-    assert offers.create_calls == []
+    # The offer was created first and then compensated (deleted): no
+    # orphan remains, and no score was persisted.
+    assert offers.create_calls
+    assert offers.delete_calls == ["offer-4"]
+    assert scores.upsert_calls == []
+
+
+def test_execute_missing_route_compensates_and_propagates():
+    """When the route does not exist (business 404), the offer is deleted (compensation) and the error propagates (the router answers 404)."""
+    from errors import RouteNotFoundError
+
+    offers = FakeOffers(offer_result={"id": "offer-7", "userId": "user-1", "createdAt": datetime.now(timezone.utc).isoformat()})
+
+    class MissingRoutes:
+        get_calls = []
+        def get_route(self, route_id):
+            self.get_calls.append(route_id)
+            raise RouteNotFoundError("route-1")
+
+    scores = FakeScores()
+    use_case = CreateOfferUseCase(offers=offers, routes=MissingRoutes(), scores=scores)
+
+    with pytest.raises(RouteNotFoundError):
+        use_case.execute(post=VALID_POST, user_id="user-1", payload=VALID_PAYLOAD)
+
+    # The offer was created first and then compensated (deleted): no
+    # orphan remains, and no score was persisted.
+    assert offers.create_calls
+    assert offers.delete_calls == ["offer-7"]
     assert scores.upsert_calls == []
 
 

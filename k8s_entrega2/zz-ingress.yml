@@ -1,0 +1,114 @@
+# ============================================================
+# Ingress - Single public entry point for all 8 services
+# ============================================================
+# Routes incoming HTTP requests by path prefix to the correct backend Service.
+# The client only ever sees one host and makes one request per requirement.
+#
+# For local development (Minikube + NGINX):
+#   1. minikube addons enable ingress
+#   2. kubectl apply -f k8s_entrega2/00-secrets.yml -f k8s_entrega2/zz-ingress.yml
+#   3. minikube tunnel (provides a load balancer IP)
+#   4. curl http://localhost/<path>/ping
+#
+# For AWS production (EKS + ALB):
+#   - Install the AWS Load Balancer Controller
+#   - Change ingressClassName from nginx to alb below
+#   - All Secrets are managed by the External Secrets Operator from
+#     AWS Secrets Manager (no K8s Secret objects needed locally)
+#   - Update annotations: remove kubernetes.io/ingress.class; keep only
+#     the alb.ingress.kubernetes.io/* annotations for ALB configuration
+# ============================================================
+#    ALB DOESNT WORK FOR ACCADEMIC ACCOUNT, SO WE USE NGINX INSTEAD
+# ============================================================
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: microservices-ingress
+  labels:
+    app: ingress-controller
+  annotations:
+    # NGINX ingress class (local Minikube)
+    kubernetes.io/ingress.class: nginx
+spec:
+  ingressClassName: nginx
+  rules:
+    # Default rule - route all traffic on host (empty host = wildcard)
+    # Each path maps to a backend Service by path prefix matching
+    - http:
+        paths:
+          # ---- Legacy Apps (Entrega 1) ----
+
+          # Users App
+          - path: /users
+            pathType: Prefix
+            backend:
+              service:
+                name: users-app-service
+                port:
+                  number: 8000
+
+          # Posts App
+          - path: /posts
+            pathType: Prefix
+            backend:
+              service:
+                name: posts-app-service
+                port:
+                  number: 8000
+
+          # Offers App
+          - path: /offers
+            pathType: Prefix
+            backend:
+              service:
+                name: offers-app-service
+                port:
+                  number: 8000
+
+          # Routes App
+          - path: /routes
+            pathType: Prefix
+            backend:
+              service:
+                name: routes-app-service
+                port:
+                  number: 8000
+
+          # Scores App
+          - path: /scores
+            pathType: Prefix
+            backend:
+              service:
+                name: scores-app-service
+                port:
+                  number: 8000
+
+           # ---- Orchestrator Apps (Entrega 2) ----
+
+          # RF-003: Create Post Orchestrator
+          - path: /rf003
+            pathType: Prefix
+            backend:
+              service:
+                name: rf003-create-post-service
+                port:
+                  number: 8000
+
+          # RF-004: Create Offer Orchestrator
+          - path: /rf004
+            pathType: Prefix
+            backend:
+              service:
+                name: rf004-create-offer-service
+                port:
+                  number: 8000
+
+          # RF-005: Query Post Orchestrator
+          - path: /rf005
+            pathType: Prefix
+            backend:
+              service:
+                name: rf005-query-post-service
+                port:
+                  number: 8000

@@ -1,0 +1,91 @@
+# Kubernetes deployment for rf003_create_post_app
+# Stateless orchestrator: no database, only service calls
+# Namespace: default
+#
+# Usage (from repository root):
+#   kubectl apply -f k8s_entrega2/25-rf003-create-post-app.yml
+#   minikube service rf003-create-post-service --url
+---
+# ============================================================
+# rf003-create-post-app Deployment
+# Stateless orchestrator service
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rf003-create-post-app
+  labels:
+    app: rf003-create-post-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rf003-create-post-app
+  template:
+    metadata:
+      labels:
+        app: rf003-create-post-app
+    spec:
+      containers:
+        - name: rf003-create-post-app
+          image: ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/rf003-create-post-app:v0.0.0
+          ports:
+            - containerPort: 8000
+
+          # Environment-based service URLs for orchestrator calls
+          env:
+            - name: APP_NAME
+              value: "rf003_create_post_app"
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: USERS_SERVICE_URL
+              value: "http://users-app-service:8000"
+            - name: ROUTES_SERVICE_URL
+              value: "http://routes-app-service:8000"
+            - name: POSTS_SERVICE_URL
+              value: "http://posts-app-service:8000"
+
+          livenessProbe:
+            httpGet:
+              path: /rf003/ping
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /rf003/ping
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          resources:
+            limits:
+              cpu: "150m"
+              memory: "150Mi"
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+
+---
+# ============================================================
+# rf003-create-post-app Service (ClusterIP — Ingress-only, no external access)
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: rf003-create-post-service
+  labels:
+    app: rf003-create-post-app
+spec:
+  type: ClusterIP
+  selector:
+    app: rf003-create-post-app
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP

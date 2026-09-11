@@ -65,5 +65,6 @@ docscopy:
 	@cp scores_app/README.md docs/apps/scores_app.md
 	@cp rf003_create_post_app/README.md docs/apps/rf003_create_post_app.md
 	@cp rf004_create_offer_app/README.md docs/apps/rf004_create_offer_app.md
+	@cp rf005_query_post_app/README.md docs/apps/rf005_query_post_app.md
 
 	@echo "Application documentation copied successfully."

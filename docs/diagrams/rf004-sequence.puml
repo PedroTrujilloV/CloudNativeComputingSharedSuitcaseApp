@@ -57,25 +57,44 @@ else body is well-formed
           Ingress --> User : 412
         else post not expired
 
-          ' ---------- Route data for score calculation ----------
-          RF004 -> Routes : GET /routes/{routeId}
+          ' ---------- Offer creation (first write) ----------
+          RF004 -> Offers : POST /offers\n{postId, userId, description,\nsize, fragile, offer}
 
-          alt Routes unreachable / integration failure
-            Routes --> RF004 : (timeout / 5xx)
+          alt Offers unreachable / integration failure
+            Offers --> RF004 : (timeout / 5xx)
             RF004 --> Ingress : 503\n{"msg": "El servicio está\ntemporalmente fuera de servicio."}
             Ingress --> User : 503
-          else route data retrieved
-            Routes --> RF004 : 200 {id, bagCost, ...}
+          else offer created successfully
+            Offers --> RF004 : 201 {id, userId, createdAt}
 
-            ' ---------- Offer creation ----------
-            RF004 -> Offers : POST /offers\n{postId, userId, description,\nsize, fragile, offer}
+            ' ---------- Route data for score calculation ----------
+            RF004 -> Routes : GET /routes/{routeId}
 
-            alt Offers unreachable / integration failure
-              Offers --> RF004 : (timeout / 5xx)
+            alt Routes unreachable / integration failure
+              Routes --> RF004 : (timeout / 5xx)
+              RF004 -> Offers : DELETE /offers/{id}\n(compensating action)
+              Offers --> RF004 : 200 (offer deleted)
               RF004 --> Ingress : 503\n{"msg": "El servicio está\ntemporalmente fuera de servicio."}
-              Ingress --> User : 503
-            else offer created successfully
-              Offers --> RF004 : 201 {id, userId, createdAt}
+              Ingress --> User : 503 (no orphaned data)
+            else route does not exist
+              Routes --> RF004 : 404
+              RF004 -> Offers : DELETE /offers/{id}\n(compensating action)
+              Offers --> RF004 : 200 (offer deleted)
+              note right of RF004
+                Consistency requirement:
+                the offer already exists in Offers,
+                so the orchestrator compensates
+                (saga compensation) by deleting
+                the just created offer. Either both
+                writes exist or neither does: no
+                orphaned offer remains. The
+                documented 404 (empty body) still
+                reaches the client.
+              end note
+              RF004 --> Ingress : 404 (empty body)
+              Ingress --> User : 404 (no orphaned data)
+            else route data retrieved
+              Routes --> RF004 : 200 {id, bagCost, ...}
 
               ' ---------- Score calculation & persistence ----------
               RF004 -> RF004 : calculate score\n(offer amount, size occupancy %, bagCost)
@@ -85,15 +104,6 @@ else body is well-formed
                 Scores --> RF004 : (timeout / 5xx)
                 RF004 -> Offers : DELETE /offers/{id}\n(compensating action)
                 Offers --> RF004 : 200 (offer deleted)
-                note right of RF004
-                  Consistency requirement:
-                  the offer already exists in Offers,
-                  so the orchestrator compensates
-                  (saga compensation) by deleting
-                  the just created offer. Either both
-                  writes exist or neither does: no
-                  orphaned offer remains.
-                end note
                 RF004 --> Ingress : 503\n{"msg": "El servicio está\ntemporalmente fuera de servicio."}
                 Ingress --> User : 503 (no orphaned data)
               else score persisted successfully

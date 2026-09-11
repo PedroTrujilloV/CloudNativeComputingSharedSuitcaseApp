@@ -1,0 +1,1572 @@
+{
+	"info": {
+		"_postman_id": "fa6eb1ab-4e1e-4e0c-bb78-7c5f73605358",
+		"name": "[MISO] Entrega 2 - Verify RF004",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "213032",
+		"_collection_link": "https://dann33.postman.co/workspace/Demos~8d59fc5a-160d-46bf-8d08-66ac887e9ddf/collection/213032-fa6eb1ab-4e1e-4e0c-bb78-7c5f73605358?action=share&source=collection_link&creator=213032"
+	},
+	"item": [
+		{
+			"name": "Reset",
+			"item": [
+				{
+					"name": "Reset users",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"console.log(pm.response.text())"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_PATH}}/users/reset",
+							"host": [
+								"{{BASE_PATH}}"
+							],
+							"path": [
+								"users",
+								"reset"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Reset routes",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"console.log(pm.response.text())"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_PATH}}/routes/reset",
+							"host": [
+								"{{BASE_PATH}}"
+							],
+							"path": [
+								"routes",
+								"reset"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Reset posts",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"console.log(pm.response.text())"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_PATH}}/posts/reset",
+							"host": [
+								"{{BASE_PATH}}"
+							],
+							"path": [
+								"posts",
+								"reset"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Reset offers",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"console.log(pm.response.text())"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_PATH}}/offers/reset",
+							"host": [
+								"{{BASE_PATH}}"
+							],
+							"path": [
+								"offers",
+								"reset"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Crear recursos",
+			"item": [
+				{
+					"name": "Creación de usuarios",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"console.log(pm.response.text())",
+									"let jsonData = JSON.parse(responseBody);",
+									"",
+									"if(jsonData.id) {",
+									"    pm.collectionVariables.set('1_USER_ID', jsonData.id);",
+									"}",
+									""
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						},
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"const email = pm.variables.replaceIn(\"{{$randomEmail}}\").toLowerCase();",
+									"const username = pm.variables.replaceIn(\"{{$randomDomainWord}}\").toLowerCase();",
+									"const password = pm.variables.replaceIn(\"{{$randomPassword}}\").toLowerCase();",
+									"const dni = pm.variables.replaceIn(\"{{$randomInt}}\");",
+									"const fullname = pm.variables.replaceIn(\"{{$randomFullName}}\").toLowerCase();",
+									"const phonenumber = pm.variables.replaceIn(\"{{$randomPhoneNumber}}\").replaceAll('-', '');",
+									"",
+									"pm.collectionVariables.set('1_USER_EMAIL', email);",
+									"pm.collectionVariables.set('1_USER_USERNAME', username);",
+									"pm.collectionVariables.set('1_USER_PASSWORD', password);",
+									"pm.collectionVariables.set('1_USER_DNI', dni);",
+									"pm.collectionVariables.set('1_USER_FULLNAME', fullname);",
+									"pm.collectionVariables.set('1_USER_PHONENUMBER', phonenumber);"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"{{1_USER_USERNAME}}\",\n    \"password\": \"{{1_USER_PASSWORD}}\",\n    \"email\": \"{{1_USER_EMAIL}}\",\n    \"dni\": \"{{1_USER_DNI}}\",\n    \"fullName\": \"{{1_USER_FULLNAME}}\",\n    \"phoneNumber\": \"{{1_USER_PHONENUMBER}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_PATH}}/users",
+							"host": [
+								"{{BASE_PATH}}"
+							],
+							"path": [
+								"users"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Creación de usuarios 2",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"console.log(pm.response.text())",
+									"let jsonData = JSON.parse(responseBody);",
+									"",
+									"if(jsonData.id) {",
+									"    pm.collectionVariables.set('2_USER_ID', jsonData.id);",
+									"}",
+									""
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						},
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"const email = pm.variables.replaceIn(\"{{$randomEmail}}\").toLowerCase();",
+									"const username = pm.variables.replaceIn(\"{{$randomDomainWord}}\").toLowerCase();",
+									"const password = pm.variables.replaceIn(\"{{$randomPassword}}\").toLowerCase();",
+									"const dni = pm.variables.replaceIn(\"{{$randomInt}}\");",
+									"const fullname = pm.variables.replaceIn(\"{{$randomFullName}}\").toLowerCase();",
+									"const phonenumber = pm.variables.replaceIn(\"{{$randomPhoneNumber}}\").replaceAll('-', '');",
+									"",
+									"pm.collectionVariables.set('2_USER_EMAIL', email);",
+									"pm.collectionVariables.set('2_USER_USERNAME', username);",
+									"pm.collectionVariables.set('2_USER_PASSWORD', password);",
+									"pm.collectionVariables.set('2_USER_DNI', dni);",
+									"pm.collectionVariables.set('2_USER_FULLNAME', fullname);",
+									"pm.collectionVariables.set('2_USER_PHONENUMBER', phonenumber);"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"{{2_USER_USERNAME}}\",\n    \"password\": \"{{2_USER_PASSWORD}}\",\n    \"email\": \"{{2_USER_EMAIL}}\",\n    \"dni\": \"{{2_USER_DNI}}\",\n    \"fullName\": \"{{2_USER_FULLNAME}}\",\n    \"phoneNumber\": \"{{2_USER_PHONENUMBER}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_PATH}}/users",
+							"host": [
+								"{{BASE_PATH}}"
+							],
+							"path": [
+								"users"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Creación de usuarios 3",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"console.log(pm.response.text())",
+									"let jsonData = JSON.parse(responseBody);",
+									"",
+									"if(jsonData.id) {",
+									"    pm.collectionVariables.set('3_USER_ID', jsonData.id);",
+									"}",
+									""
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						},
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"const email = pm.variables.replaceIn(\"{{$randomEmail}}\").toLowerCase();",
+									"const username = pm.variables.replaceIn(\"{{$randomDomainWord}}\").toLowerCase();",
+									"const password = pm.variables.replaceIn(\"{{$randomPassword}}\").toLowerCase();",
+									"const dni = pm.variables.replaceIn(\"{{$randomInt}}\");",
+									"const fullname = pm.variables.replaceIn(\"{{$randomFullName}}\").toLowerCase();",
+									"const phonenumber = pm.variables.replaceIn(\"{{$randomPhoneNumber}}\").replaceAll('-', '');",
+									"",
+									"pm.collectionVariables.set('3_USER_EMAIL', email);",
+									"pm.collectionVariables.set('3_USER_USERNAME', username);",
+									"pm.collectionVariables.set('3_USER_PASSWORD', password);",
+									"pm.collectionVariables.set('3_USER_DNI', dni);",
+									"pm.collectionVariables.set('3_USER_FULLNAME', fullname);",
+									"pm.collectionVariables.set('3_USER_PHONENUMBER', phonenumber);"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"{{3_USER_USERNAME}}\",\n    \"password\": \"{{3_USER_PASSWORD}}\",\n    \"email\": \"{{3_USER_EMAIL}}\",\n    \"dni\": \"{{3_USER_DNI}}\",\n    \"fullName\": \"{{3_USER_FULLNAME}}\",\n    \"phoneNumber\": \"{{3_USER_PHONENUMBER}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_PATH}}/users",
+							"host": [
+								"{{BASE_PATH}}"
+							],
+							"path": [
+								"users"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Generación de token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"console.log(pm.response.text())",
+									"let jsonData = JSON.parse(responseBody);",
+									"",
+									"if(jsonData.token) {",
+									"    pm.collectionVariables.set('1_USER_TOKEN', jsonData.token);",
+									"}",
+									"",
+									"if(jsonData.id) {",
+									"    pm.collectionVariables.set('1_USER_ID', jsonData.id);",
+									"}"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"{{1_USER_USERNAME}}\",\n    \"password\": \"{{1_USER_PASSWORD}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_PATH}}/users/auth",
+							"host": [
+								"{{BASE_PATH}}"
+							],
+							"path": [
+								"users",
+								"auth"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Generación de token 2",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"console.log(pm.response.text())",
+									"let jsonData = JSON.parse(responseBody);",
+									"",
+									"if(jsonData.token) {",
+									"    pm.collectionVariables.set('2_USER_TOKEN', jsonData.token);",
+									"}",
+									"",
+									"if(jsonData.id) {",
+									"    pm.collectionVariables.set('2_USER_ID', jsonData.id);",
+									"}"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"{{2_USER_USERNAME}}\",\n    \"password\": \"{{2_USER_PASSWORD}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_PATH}}/users/auth",
+							"host": [
+								"{{BASE_PATH}}"
+							],
+							"path": [
+								"users",
+								"auth"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Generación de token 3",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"console.log(pm.response.text())",
+									"let jsonData = JSON.parse(responseBody);",
+									"",
+									"if(jsonData.token) {",
+									"    pm.collectionVariables.set('3_USER_TOKEN', jsonData.token);",
+									"}",
+									"",
+									"if(jsonData.id) {",
+									"    pm.collectionVariables.set('3_USER_ID', jsonData.id);",
+									"}"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"{{3_USER_USERNAME}}\",\n    \"password\": \"{{3_USER_PASSWORD}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_PATH}}/users/auth",
+							"host": [
+								"{{BASE_PATH}}"
+							],
+							"path": [
+								"users",
+								"auth"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Creación de trayecto",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"console.log(pm.response.text())",
+									"let jsonData = JSON.parse(responseBody);",
+									"",
+									"if(jsonData.id) {",
+									"    pm.collectionVariables.set('ROUTE_ID', jsonData.id);",
+									"}",
+									""
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						},
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"let plannedStartDate = new Date();",
+									"(plannedStartDate.setDate(plannedStartDate.getDate() + 2));",
+									"plannedStartDate = plannedStartDate.toISOString();",
+									"",
+									"let plannedEndDate = new Date();",
+									"(plannedEndDate.setDate(plannedEndDate.getDate() + 10));",
+									"plannedEndDate = plannedEndDate.toISOString();",
+									"",
+									"const flightId = pm.variables.replaceIn(\"{{$randomInt}}\");",
+									"const sourceAirportCode = 'BOG';",
+									"const sourceCountry = 'Colombia';",
+									"const destinyAirportCode = 'LGW';",
+									"const destinyCountry = 'Inglaterra';",
+									"const bagCost = pm.variables.replaceIn(\"{{$randomInt}}\");",
+									"",
+									"pm.collectionVariables.set('ROUTE_FLIGHTID', flightId);",
+									"pm.collectionVariables.set('ROUTE_SOURCEAIRPORTCODE', sourceAirportCode);",
+									"pm.collectionVariables.set('ROUTE_SOURCECOUNTRY', sourceCountry);",
+									"pm.collectionVariables.set('ROUTE_DESTINYAIRPORTCODE', destinyAirportCode);",
+									"pm.collectionVariables.set('ROUTE_DESTINYCOUNTRY', destinyCountry);",
+									"pm.collectionVariables.set('ROUTE_BAGCOST', bagCost);",
+									"pm.collectionVariables.set('ROUTE_PLANNEDSTARTDATE', plannedStartDate);",
+									"pm.collectionVariables.set('ROUTE_PLANNEDENDDATE', plannedEndDate);"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"flightId\": \"{{ROUTE_FLIGHTID}}\",\n    \"sourceAirportCode\": \"{{ROUTE_SOURCEAIRPORTCODE}}\",\n    \"sourceCountry\": \"{{ROUTE_SOURCECOUNTRY}}\",\n    \"destinyAirportCode\": \"{{ROUTE_DESTINYAIRPORTCODE}}\",\n    \"destinyCountry\": \"{{ROUTE_DESTINYCOUNTRY}}\",\n    \"bagCost\": {{ROUTE_BAGCOST}},\n    \"plannedStartDate\": \"{{ROUTE_PLANNEDSTARTDATE}}\",\n    \"plannedEndDate\": \"{{ROUTE_PLANNEDENDDATE}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_PATH}}/routes",
+							"host": [
+								"{{BASE_PATH}}"
+							],
+							"path": [
+								"routes"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Creación de publicación",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"console.log(pm.response.text())",
+									"let jsonData = JSON.parse(responseBody);",
+									"",
+									"if(jsonData.id) {",
+									"    pm.collectionVariables.set('POST_ID', jsonData.id);",
+									"}",
+									""
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						},
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"let expireAt = new Date();",
+									"(expireAt.setDate(expireAt.getDate() + 7));",
+									"expireAt = expireAt.toISOString();",
+									"",
+									"pm.collectionVariables.set('POST_EXPIREAT', expireAt);"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"routeId\": \"{{ROUTE_ID}}\",\n    \"expireAt\": \"{{POST_EXPIREAT}}\",\n    \"userId\": \"{{1_USER_ID}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_PATH}}/posts",
+							"host": [
+								"{{BASE_PATH}}"
+							],
+							"path": [
+								"posts"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "RF-004 Crear oferta",
+			"item": [
+				{
+					"name": "Creación de oferta usuario es dueño de la publicacion",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"console.log(pm.response.text())",
+									"tests[\"Status should be 412\"] = responseCode.code == 412;"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						},
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"const SIZES = [\"LARGE\", \"MEDIUM\", \"SMALL\"];",
+									"const FRAGILE_TYPES = [true, false]",
+									"",
+									"const description = pm.variables.replaceIn(\"{{$randomLoremWords}}\").toLowerCase();",
+									"const size = SIZES[Math.floor(Math.random() * SIZES.length)];",
+									"const fragile = FRAGILE_TYPES[Math.floor(Math.random() * FRAGILE_TYPES.length)];",
+									"const offer = pm.variables.replaceIn(\"{{$randomInt}}\");",
+									"",
+									"pm.collectionVariables.set('1_OFFER_DESCRIPTION', description);",
+									"pm.collectionVariables.set('1_OFFER_SIZE', size);",
+									"pm.collectionVariables.set('1_OFFER_FRAGILE', fragile);",
+									"pm.collectionVariables.set('1_OFFER_OFFER', offer);"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{1_USER_TOKEN}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"description\": \"{{1_OFFER_DESCRIPTION}}\",\n    \"size\": \"{{1_OFFER_SIZE}}\",\n    \"fragile\" : {{1_OFFER_FRAGILE}},\n    \"offer\": {{1_OFFER_OFFER}}\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_PATH}}/rf004/posts/{{POST_ID}}/offers",
+							"host": [
+								"{{BASE_PATH}}"
+							],
+							"path": [
+								"rf004",
+								"posts",
+								"{{POST_ID}}",
+								"offers"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Creación de oferta con usuario 2",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"console.log(pm.response.text())",
+									"let jsonData = JSON.parse(responseBody);",
+									"",
+									"tests[\"Status should be 201\"] = responseCode.code == 201;",
+									"tests[\"Response has data\"] = jsonData.data !== undefined;",
+									"tests[\"Response has msg\"] = jsonData.msg !== undefined;",
+									"",
+									"let offer = jsonData.data;",
+									"tests[\"Response has id\"] = offer.id !== undefined;",
+									"tests[\"Response has userId\"] = offer.userId !== undefined;",
+									"tests[\"Response has createdAt\"] = offer.createdAt !== undefined;",
+									"tests[\"Response has postId\"] = offer.postId !== undefined;"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						},
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"",
+									"const SIZES = [\"LARGE\", \"MEDIUM\", \"SMALL\"];",
+									"const FRAGILE_TYPES = [true, false]",
+									"",
+									"const description = pm.variables.replaceIn(\"{{$randomLoremWords}}\").toLowerCase();",
+									"const size = SIZES[Math.floor(Math.random() * SIZES.length)];",
+									"const fragile = FRAGILE_TYPES[Math.floor(Math.random() * FRAGILE_TYPES.length)];",
+									"const offer = pm.variables.replaceIn(\"{{$randomInt}}\");",
+									"",
+									"pm.collectionVariables.set('2_OFFER_DESCRIPTION', description);",
+									"pm.collectionVariables.set('2_OFFER_SIZE', size);",
+									"pm.collectionVariables.set('2_OFFER_FRAGILE', fragile);",
+									"pm.collectionVariables.set('2_OFFER_OFFER', offer);"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{2_USER_TOKEN}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"description\": \"{{2_OFFER_DESCRIPTION}}\",\n    \"size\": \"{{2_OFFER_SIZE}}\",\n    \"fragile\" : {{2_OFFER_FRAGILE}},\n    \"offer\": {{2_OFFER_OFFER}}\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_PATH}}/rf004/posts/{{POST_ID}}/offers",
+							"host": [
+								"{{BASE_PATH}}"
+							],
+							"path": [
+								"rf004",
+								"posts",
+								"{{POST_ID}}",
+								"offers"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Creación de oferta con usuario 3",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"console.log(pm.response.text())",
+									"let jsonData = JSON.parse(responseBody);",
+									"",
+									"tests[\"Status should be 201\"] = responseCode.code == 201;",
+									"tests[\"Response has data\"] = jsonData.data !== undefined;",
+									"tests[\"Response has msg\"] = jsonData.msg !== undefined;",
+									"",
+									"let offer = jsonData.data;",
+									"tests[\"Response has id\"] = offer.id !== undefined;",
+									"tests[\"Response has userId\"] = offer.userId !== undefined;",
+									"tests[\"Response has createdAt\"] = offer.createdAt !== undefined;",
+									"tests[\"Response has postId\"] = offer.postId !== undefined;"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						},
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"const SIZES = [\"LARGE\", \"MEDIUM\", \"SMALL\"];",
+									"const FRAGILE_TYPES = [true, false]",
+									"",
+									"const description = pm.variables.replaceIn(\"{{$randomLoremWords}}\").toLowerCase();",
+									"const size = SIZES[Math.floor(Math.random() * SIZES.length)];",
+									"const fragile = FRAGILE_TYPES[Math.floor(Math.random() * FRAGILE_TYPES.length)];",
+									"const offer = pm.variables.replaceIn(\"{{$randomInt}}\");",
+									"",
+									"pm.collectionVariables.set('3_OFFER_DESCRIPTION', description);",
+									"pm.collectionVariables.set('3_OFFER_SIZE', size);",
+									"pm.collectionVariables.set('3_OFFER_FRAGILE', fragile);",
+									"pm.collectionVariables.set('3_OFFER_OFFER', offer);"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{3_USER_TOKEN}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"description\": \"{{3_OFFER_DESCRIPTION}}\",\n    \"size\": \"{{3_OFFER_SIZE}}\",\n    \"fragile\" : {{3_OFFER_FRAGILE}},\n    \"offer\": {{3_OFFER_OFFER}}\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_PATH}}/rf004/posts/{{POST_ID}}/offers",
+							"host": [
+								"{{BASE_PATH}}"
+							],
+							"path": [
+								"rf004",
+								"posts",
+								"{{POST_ID}}",
+								"offers"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Creación de oferta sin token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"console.log(pm.response.text())",
+									"tests[\"Status should be 403\"] = responseCode.code == 403;"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"description\": \"{{2_OFFER_DESCRIPTION}}\",\n    \"size\": \"{{2_OFFER_SIZE}}\",\n    \"fragile\" : {{2_OFFER_FRAGILE}},\n    \"offer\": {{2_OFFER_OFFER}}\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_PATH}}/rf004/posts/{{POST_ID}}/offers",
+							"host": [
+								"{{BASE_PATH}}"
+							],
+							"path": [
+								"rf004",
+								"posts",
+								"{{POST_ID}}",
+								"offers"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Creación de oferta token invalido",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"console.log(pm.response.text())",
+									"tests[\"Status should be 401\"] = responseCode.code == 401;"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						},
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									""
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{2_USER_TOKEN}}fake",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"description\": \"{{2_OFFER_DESCRIPTION}}\",\n    \"size\": \"{{2_OFFER_SIZE}}\",\n    \"fragile\" : {{2_OFFER_FRAGILE}},\n    \"offer\": {{2_OFFER_OFFER}}\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_PATH}}/rf004/posts/{{POST_ID}}/offers",
+							"host": [
+								"{{BASE_PATH}}"
+							],
+							"path": [
+								"rf004",
+								"posts",
+								"{{POST_ID}}",
+								"offers"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Creación de oferta campos faltantes",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"console.log(pm.response.text())",
+									"tests[\"Status should be 400\"] = responseCode.code == 400;"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{2_USER_TOKEN}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"description\": \"{{2_OFFER_DESCRIPTION}}\",\n    \"size\": \"{{2_OFFER_SIZE}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_PATH}}/rf004/posts/{{POST_ID}}/offers",
+							"host": [
+								"{{BASE_PATH}}"
+							],
+							"path": [
+								"rf004",
+								"posts",
+								"{{POST_ID}}",
+								"offers"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Creación de oferta publicacion no existe",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"console.log(pm.response.text())",
+									"tests[\"Status should be 404\"] = responseCode.code == 404;"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{2_USER_TOKEN}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"description\": \"{{2_OFFER_DESCRIPTION}}\",\n    \"size\": \"{{2_OFFER_SIZE}}\",\n    \"fragile\" : {{2_OFFER_FRAGILE}},\n    \"offer\": {{2_OFFER_OFFER}}\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_PATH}}/rf004/posts/bf8792d2-3097-11ee-be56-0242ac120002/offers",
+							"host": [
+								"{{BASE_PATH}}"
+							],
+							"path": [
+								"rf004",
+								"posts",
+								"bf8792d2-3097-11ee-be56-0242ac120002",
+								"offers"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Usuario 1 no deberia tener ofertas",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"console.log(pm.response.text())",
+									"let jsonData = JSON.parse(responseBody);",
+									"",
+									"tests[\"Status should be 200\"] = responseCode.code === 200;",
+									"tests[\"No offer should be present\"] = jsonData.length === 0;"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{1_USER_TOKEN}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_PATH}}/offers?post={{POST_ID}}&owner={{1_USER_ID}}",
+							"host": [
+								"{{BASE_PATH}}"
+							],
+							"path": [
+								"offers"
+							],
+							"query": [
+								{
+									"key": "post",
+									"value": "{{POST_ID}}"
+								},
+								{
+									"key": "owner",
+									"value": "{{1_USER_ID}}"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Usuario 2 solo deberia tener una oferta",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"console.log(pm.response.text())",
+									"let jsonData = JSON.parse(responseBody);",
+									"",
+									"tests[\"Status should be 200\"] = responseCode.code === 200;",
+									"tests[\"One offer should be present\"] = jsonData.length === 1;"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{2_USER_TOKEN}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_PATH}}/offers?post={{POST_ID}}&owner={{2_USER_ID}}",
+							"host": [
+								"{{BASE_PATH}}"
+							],
+							"path": [
+								"offers"
+							],
+							"query": [
+								{
+									"key": "post",
+									"value": "{{POST_ID}}"
+								},
+								{
+									"key": "owner",
+									"value": "{{2_USER_ID}}"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Usuario 3 solo deberia tener una oferta",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"console.log(pm.response.text())",
+									"let jsonData = JSON.parse(responseBody);",
+									"",
+									"tests[\"Status should be 200\"] = responseCode.code === 200;",
+									"tests[\"One offer should be present\"] = jsonData.length === 1;"
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{3_USER_TOKEN}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_PATH}}/offers?post={{POST_ID}}&owner={{3_USER_ID}}",
+							"host": [
+								"{{BASE_PATH}}"
+							],
+							"path": [
+								"offers"
+							],
+							"query": [
+								{
+									"key": "post",
+									"value": "{{POST_ID}}"
+								},
+								{
+									"key": "owner",
+									"value": "{{3_USER_ID}}"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "BASE_PATH",
+			"value": "http://localhost:9000",
+			"type": "string"
+		},
+		{
+			"key": "1_USER_EMAIL",
+			"value": ""
+		},
+		{
+			"key": "1_USER_USERNAME",
+			"value": ""
+		},
+		{
+			"key": "1_USER_PASSWORD",
+			"value": ""
+		},
+		{
+			"key": "1_USER_DNI",
+			"value": ""
+		},
+		{
+			"key": "1_USER_FULLNAME",
+			"value": ""
+		},
+		{
+			"key": "1_USER_PHONENUMBER",
+			"value": ""
+		},
+		{
+			"key": "1_USER_ID",
+			"value": ""
+		},
+		{
+			"key": "2_USER_EMAIL",
+			"value": ""
+		},
+		{
+			"key": "2_USER_USERNAME",
+			"value": ""
+		},
+		{
+			"key": "2_USER_PASSWORD",
+			"value": ""
+		},
+		{
+			"key": "2_USER_DNI",
+			"value": ""
+		},
+		{
+			"key": "2_USER_FULLNAME",
+			"value": ""
+		},
+		{
+			"key": "2_USER_PHONENUMBER",
+			"value": ""
+		},
+		{
+			"key": "2_USER_ID",
+			"value": ""
+		},
+		{
+			"key": "3_USER_EMAIL",
+			"value": ""
+		},
+		{
+			"key": "3_USER_USERNAME",
+			"value": ""
+		},
+		{
+			"key": "3_USER_PASSWORD",
+			"value": ""
+		},
+		{
+			"key": "3_USER_DNI",
+			"value": ""
+		},
+		{
+			"key": "3_USER_FULLNAME",
+			"value": ""
+		},
+		{
+			"key": "3_USER_PHONENUMBER",
+			"value": ""
+		},
+		{
+			"key": "3_USER_ID",
+			"value": ""
+		},
+		{
+			"key": "1_USER_TOKEN",
+			"value": ""
+		},
+		{
+			"key": "2_USER_TOKEN",
+			"value": ""
+		},
+		{
+			"key": "3_USER_TOKEN",
+			"value": ""
+		},
+		{
+			"key": "ROUTE_FLIGHTID",
+			"value": ""
+		},
+		{
+			"key": "ROUTE_SOURCEAIRPORTCODE",
+			"value": ""
+		},
+		{
+			"key": "ROUTE_SOURCECOUNTRY",
+			"value": ""
+		},
+		{
+			"key": "ROUTE_DESTINYAIRPORTCODE",
+			"value": ""
+		},
+		{
+			"key": "ROUTE_DESTINYCOUNTRY",
+			"value": ""
+		},
+		{
+			"key": "ROUTE_BAGCOST",
+			"value": ""
+		},
+		{
+			"key": "ROUTE_PLANNEDSTARTDATE",
+			"value": ""
+		},
+		{
+			"key": "ROUTE_PLANNEDENDDATE",
+			"value": ""
+		},
+		{
+			"key": "ROUTE_ID",
+			"value": ""
+		},
+		{
+			"key": "POST_EXPIREAT",
+			"value": ""
+		},
+		{
+			"key": "POST_ID",
+			"value": ""
+		},
+		{
+			"key": "1_OFFER_DESCRIPTION",
+			"value": ""
+		},
+		{
+			"key": "1_OFFER_SIZE",
+			"value": ""
+		},
+		{
+			"key": "1_OFFER_FRAGILE",
+			"value": ""
+		},
+		{
+			"key": "1_OFFER_OFFER",
+			"value": ""
+		},
+		{
+			"key": "2_OFFER_DESCRIPTION",
+			"value": ""
+		},
+		{
+			"key": "2_OFFER_SIZE",
+			"value": ""
+		},
+		{
+			"key": "2_OFFER_FRAGILE",
+			"value": ""
+		},
+		{
+			"key": "2_OFFER_OFFER",
+			"value": ""
+		},
+		{
+			"key": "3_OFFER_DESCRIPTION",
+			"value": ""
+		},
+		{
+			"key": "3_OFFER_SIZE",
+			"value": ""
+		},
+		{
+			"key": "3_OFFER_FRAGILE",
+			"value": ""
+		},
+		{
+			"key": "3_OFFER_OFFER",
+			"value": ""
+		}
+	]
+}

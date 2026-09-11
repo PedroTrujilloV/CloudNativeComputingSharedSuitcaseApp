@@ -81,6 +81,7 @@ def _build_use_case(
     score_calls: list,
     scores_down: bool = False,
     offers_down: bool = False,
+    route_missing: bool = False,
 ) -> CreateOfferUseCase:
     """Build the real use case with real HTTP clients over mock transports."""
     offers_client = OffersServiceClient(
@@ -94,7 +95,13 @@ def _build_use_case(
     routes_client = RoutesServiceClient(
         client=httpx.Client(
             base_url=ROUTES_BASE,
-            transport=httpx.MockTransport(_route_handler),
+            transport=httpx.MockTransport(
+                (
+                    (lambda request: httpx.Response(404, json={}))
+                    if route_missing
+                    else _route_handler
+                )
+            ),
         )
     )
     scores_client = ScoresServiceClient(
@@ -150,6 +157,26 @@ def test_offers_outage_returns_503_with_no_writes(client: TestClient):
     assert response.status_code == 503
     assert response.json() == STANDARD_503
     assert offers_state.get("state") is None  # create was never accepted
+
+
+def test_missing_route_returns_404_and_compensates(client: TestClient):
+    """A post whose route does not exist is a 404 (empty body) and the offer created mid-flow is deleted: no orphan remains."""
+    client.fake_posts.posts[POST_ID] = valid_post()
+    offers_state: dict = {}
+    use_case = _build_use_case(offers_state, [], route_missing=True)
+
+    app.dependency_overrides[get_create_offer_use_case] = lambda: use_case
+    try:
+        response = client.post(URL, json=valid_payload(), headers=AUTH)
+    finally:
+        app.dependency_overrides.pop(get_create_offer_use_case, None)
+
+    # The documented 404 contract (empty body) is preserved.
+    assert response.status_code == 404
+    assert response.text == ""
+    # The offer was created first, then compensated (deleted): no orphan
+    # remains behind the business rejection.
+    assert offers_state.get("state") == "compensated"
 
 
 def test_happy_path_persists_offer_and_score(client: TestClient):

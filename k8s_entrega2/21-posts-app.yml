@@ -1,0 +1,101 @@
+# Kubernetes deployment for posts_app
+# Minikube: app only; shared-db-service provides Postgres (k8s_entrega2/local-only/15-shared-db.yml)
+# Namespace: default
+# DB credentials: managed via AWS Secrets Manager by External Secrets Operator
+# ENVIRONMENT NOTES: Local minikube = shared-db-service (own database per app). AWS = shared RDS (see k8s_entrega2/00-aws-secrets-shared-db.yml).
+#
+# Usage (from repository root):
+#   kubectl apply -f k8s_entrega2/21-posts-app.yml
+#   minikube service posts-app-service --url
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: posts-app
+  labels:
+    app: posts-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: posts-app
+  template:
+    metadata:
+      labels:
+        app: posts-app
+    spec:
+      containers:
+        - name: posts-app
+          image: ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/posts-app:v0.0.0
+          ports:
+            - containerPort: 8000
+          env:
+            - name: APP_NAME
+              value: "posts_app"
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: DB_DRIVER
+              value: "postgresql"
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: posts-app-secrets
+                  key: DB_HOST
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: posts-app-secrets
+                  key: DB_PORT
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: posts-app-secrets
+                  key: DB_NAME
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: posts-app-secrets
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: posts-app-secrets
+                  key: DB_PASSWORD
+          livenessProbe:
+            httpGet:
+              path: /posts/ping
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /posts/ping
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            limits:
+              cpu: "150m"
+              memory: "150Mi"
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: posts-app-service
+  labels:
+    app: posts-app
+spec:
+  type: ClusterIP
+  selector:
+    app: posts-app
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP

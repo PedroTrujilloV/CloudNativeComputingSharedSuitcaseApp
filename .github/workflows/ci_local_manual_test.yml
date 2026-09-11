@@ -1,0 +1,69 @@
+# ============================================================
+# Local manual test (workflow_dispatch)
+# ============================================================
+# Run the full local Minikube deployment + verification sequence
+# on ANY branch with a single click. This automates the manual
+# steps documented in docs/README.md ("Run with Minikube" and
+# "Verify the deployment") so the team does not have to copy and
+# paste the command sequence every time:
+#
+#   1. scripts/local-deploy.sh
+#        - removes old Minikube clusters, Docker images/containers
+#        - starts a fresh Minikube cluster with the ingress addon
+#        - builds the 6 real app images + 2 stub images (rf004/rf005,
+#          whose real code lives in separate branches)
+#        - applies the k8s_entrega2/ manifests in deployment order (secrets,
+#          shared-db, apps, ingress)
+#        - waits until every Deployment is ready
+#   2. scripts/local-verify.sh
+#        - checks pods, services and the ingress
+#        - checks every app endpoint through its NodePort
+#        - checks every app endpoint through the Ingress paths
+#        - runs a functional smoke test (user -> auth -> RF-003
+#          create post -> read post back)
+#
+# This workflow is for team self-testing ONLY. It does not modify
+# or replace any evaluation workflow (ci_entrega1_evaluador_k8s.yml,
+# ci_entrega2_deploy.yml, ci_entrega2_evaluador.yml, etc.).
+#
+# Usage:
+#   GitHub -> Actions -> "Local manual test" -> Run workflow
+#   (optionally pick another branch in the "branch" input)
+# ============================================================
+name: Local manual test
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to deploy and verify on Minikube'
+        required: true
+        default: 'main'
+        type: string
+
+jobs:
+  local-manual-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout the selected branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+
+      # minikube and kubectl are preinstalled on ubuntu-latest.
+      # scripts/local-deploy.sh deletes any existing cluster and starts
+      # its own (4 cpus / 8g) with the ingress addon.
+
+      - name: Deploy on Minikube (scripts/local-deploy.sh)
+        run: bash scripts/local-deploy.sh
+
+      - name: Verify the deployment (scripts/local-verify.sh)
+        run: bash scripts/local-verify.sh
+
+      - name: Show final cluster state (logs only)
+        if: always()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl get svc || true
+          kubectl get ingress || true
+          kubectl get networkpolicy || true

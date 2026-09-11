@@ -1,0 +1,385 @@
+name: Entrega 2 - Destroy (reusable)
+
+# Pipeline reutilizable: NO se dispara directamente en este repo (recursos-
+# evaluador no tiene el código de terraform/k8s de ningún proyecto), solo vía
+# `uses:` desde el repo de cada estudiante/tutor. Ver
+# 202514-cesarf/.github/workflows/ci_entrega2_destroy.yml para un ejemplo de
+# invocación. Usa el mismo config.yaml (tf_stacks / k8s_manifests) y las
+# mismas carpetas terraform/stacks/ y terraform/environments/ que
+# ci_entrega2_deploy.yml — ver el comentario de cabecera de ese workflow
+# para el contrato completo.
+#
+# Destruye en el orden INVERSO al que aplica el deploy: primero borra los
+# manifiestos de k8s_manifests y hace terraform destroy de tf_stacks en
+# orden inverso, para respetar dependencias entre stacks (ej. un stack
+# "apps" que depende de un stack "network" se destruye antes que "network").
+#
+# Caso especial "tutor": mismo criterio que ci_entrega2_deploy.yml — el
+# ambiente `tutor` no tiene backend.tfvars ni terraform.tfvars committeados,
+# así que para ese ambiente el pipeline usa la carpeta
+# terraform/environments/<default_env>/<stack>/ (default_env viene de
+# config.yaml) como base, pisando región/bucket/key del backend con los
+# valores de tutor. Ver el comentario de cabecera de ci_entrega2_deploy.yml
+# para el detalle completo.
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Ambiente a destruir (debe existir como GitHub Environment en el repo que llama)'
+        required: true
+        type: string
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      AWS_SESSION_TOKEN:
+        required: true
+      DB_USERNAME:
+        description: 'Usuario de la base de datos. Opcional'
+        required: false
+      DB_PASSWORD:
+        description: 'Contraseña de la base de datos. Opcional'
+        required: false
+
+# Mismo grupo (sin prefijo "deploy-"/"destroy-") que ci_entrega2_deploy.yml a
+# propósito: un deploy y un destroy del mismo ambiente nunca deben correr en
+# paralelo.
+concurrency:
+  group: infra-${{ github.ref }}-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  # -----------------------------------------------------------------------
+  # 0. Valida secrets requeridos y lee de config.yaml / los .tfvars de cada
+  #    stack la misma configuración que ci_entrega2_deploy.yml (tf_stacks,
+  #    k8s_manifests, región, nombre del cluster), para que ambos pipelines
+  #    apunten siempre al mismo lugar.
+  # -----------------------------------------------------------------------
+  config:
+    environment: ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    outputs:
+      tf_stacks: ${{ steps.lists.outputs.tf_stacks }}
+      k8s_manifests: ${{ steps.lists.outputs.k8s_manifests }}
+      default_env: ${{ steps.lists.outputs.default_env }}
+      region: ${{ steps.tf_config.outputs.region }}
+      cluster_name: ${{ steps.tf_config.outputs.cluster_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required secrets and vars are set
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+          DB_USERNAME: ${{ secrets.DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          TF_STATE_BUCKET_NAME: ${{ vars.TF_STATE_BUCKET_NAME }}
+        run: |
+          # DB_USERNAME/DB_PASSWORD son opcionalesm, si vienen
+          # configurados se pasan a terraform como -var, si no, no se pasa
+          # nada.
+          required_secrets=(AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN)
+          # TF_STATE_BUCKET_NAME es una variable (no un secret) — se valida
+          # por separado. Ver comentario de cabecera de ci_entrega2_deploy.yml.
+          required_vars=()
+          if [ "${{ inputs.environment }}" = "tutor" ]; then
+            required_vars+=(TF_STATE_BUCKET_NAME)
+          fi
+
+          missing_secrets=()
+          for var in "${required_secrets[@]}"; do
+            if [ -z "${!var}" ]; then
+              missing_secrets+=("$var")
+            fi
+          done
+          missing_vars=()
+          for var in "${required_vars[@]}"; do
+            if [ -z "${!var}" ]; then
+              missing_vars+=("$var")
+            fi
+          done
+
+          if [ ${#missing_secrets[@]} -gt 0 ]; then
+            echo "❌ Faltan los siguientes secrets en el repo (Settings → Secrets and variables → Actions → Secrets):"
+            for var in "${missing_secrets[@]}"; do
+              echo "   - $var"
+            done
+          fi
+          if [ ${#missing_vars[@]} -gt 0 ]; then
+            echo "❌ Faltan las siguientes variables en el repo (Settings → Secrets and variables → Actions → Variables):"
+            for var in "${missing_vars[@]}"; do
+              echo "   - $var"
+            done
+          fi
+          if [ ${#missing_secrets[@]} -gt 0 ] || [ ${#missing_vars[@]} -gt 0 ]; then
+            exit 1
+          fi
+
+          echo "✅ Todos los secrets y variables requeridos están configurados."
+
+      - uses: mikefarah/yq@v4.30.8
+
+      - id: lists
+        name: Leer tf_stacks / k8s_manifests de config.yaml
+        run: |
+          tf_stacks=$(yq -o=json -I=0 '.tf_stacks // []' config.yaml)
+          k8s_manifests=$(yq -o=json -I=0 '.k8s_manifests // []' config.yaml)
+          default_env=$(yq -r '.default_env // ""' config.yaml)
+
+          if [ ! -d terraform/stacks ] || [ ! -d terraform/environments ]; then
+            echo "❌ Este repo debe tener las carpetas terraform/stacks/ y terraform/environments/ en la raíz."
+            exit 1
+          fi
+          if [ "$(echo "$tf_stacks" | jq 'length')" -eq 0 ]; then
+            echo "❌ config.yaml no define 'tf_stacks' (lista de nombres de stack de terraform a destruir)."
+            exit 1
+          fi
+          if [ "$(echo "$k8s_manifests" | jq 'length')" -eq 0 ]; then
+            echo "❌ config.yaml no define 'k8s_manifests' (lista de carpetas de manifiestos k8s a borrar)."
+            exit 1
+          fi
+          # default_env: mismo requisito que ci_entrega2_deploy.yml (se
+          # valida siempre, no solo cuando environment=tutor).
+          if [ -z "$default_env" ]; then
+            echo "❌ config.yaml no define 'default_env' (nombre de un ambiente de terraform/environments/ a usar como base para 'tutor')."
+            exit 1
+          fi
+          if [ "$default_env" = "tutor" ]; then
+            echo "❌ 'default_env' en config.yaml no puede ser 'tutor' (tutor lo usa como base para sí mismo, sería circular)."
+            exit 1
+          fi
+
+          echo "tf_stacks=${tf_stacks}" >> "$GITHUB_OUTPUT"
+          echo "k8s_manifests=${k8s_manifests}" >> "$GITHUB_OUTPUT"
+          echo "default_env=${default_env}" >> "$GITHUB_OUTPUT"
+
+      - id: tf_config
+        name: Descubrir región / cluster para los stacks
+        run: |
+          region=""
+          cluster_name=""
+
+          if [ "${{ inputs.environment }}" = "tutor" ]; then
+            env_environment="${{ steps.lists.outputs.default_env }}"
+          else
+            env_environment="${{ inputs.environment }}"
+          fi
+
+          for stack_name in $(echo '${{ steps.lists.outputs.tf_stacks }}' | jq -r '.[]'); do
+            stack_dir="terraform/stacks/${stack_name}"
+            env_dir="terraform/environments/${env_environment}/${stack_name}"
+            backend_file="${env_dir}/backend.tfvars"
+            tfvars_file="${env_dir}/terraform.tfvars"
+
+            if [ ! -d "$stack_dir" ]; then
+              echo "❌ No existe ${stack_dir} (esperado para el stack '${stack_name}' listado en tf_stacks)."
+              exit 1
+            fi
+            if [ ! -f "$backend_file" ]; then
+              echo "❌ No existe ${backend_file} (esperado para el stack '${stack_name}')."
+              exit 1
+            fi
+
+            if [ "${{ inputs.environment }}" = "tutor" ]; then
+              stack_region="us-east-1"
+            else
+              stack_region=$(grep '^region' "$backend_file" | cut -d'"' -f2)
+            fi
+
+            region="${region:-$stack_region}"
+
+            if [ -z "$cluster_name" ] && [ -f "$tfvars_file" ]; then
+              found=$(grep '^cluster_name' "$tfvars_file" | cut -d'"' -f2 || true)
+              cluster_name="${cluster_name:-$found}"
+            fi
+          done
+
+          if [ -z "$cluster_name" ]; then
+            echo "❌ Ningún stack de tf_stacks define 'cluster_name' en su terraform.tfvars (se usa para conectar kubectl en teardown-k8s)."
+            exit 1
+          fi
+
+          echo "region=${region}" >> "$GITHUB_OUTPUT"
+          echo "cluster_name=${cluster_name}" >> "$GITHUB_OUTPUT"
+
+  # -----------------------------------------------------------------------
+  # 1. Desinstala ingress-nginx y borra los manifiestos de k8s_manifests
+  #    ANTES de tocar Terraform. El Service tipo LoadBalancer crea un
+  #    Elastic Load Balancer real en AWS que Terraform nunca gestionó (lo
+  #    creó el cloud-controller-manager de EKS vía Helm). Si se destruye el
+  #    cluster/VPC con ese ELB todavía vivo, puede quedar huérfano
+  #    (facturando) o bloquear el borrado de subnets/security groups porque
+  #    el ELB todavía tiene ENIs conectadas ahí. Por eso hay que esperar a
+  #    que el ELB real desaparezca de AWS, no solo a que se borre el objeto
+  #    Service de k8s.
+  # -----------------------------------------------------------------------
+  teardown-k8s:
+    environment: ${{ inputs.environment }}
+    needs: config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ needs.config.outputs.region }}
+
+      # Hace que este job (y por lo tanto el pipeline completo) sea seguro
+      # de re-ejecutar: si el cluster ya no existe (ej. un destroy previo
+      # falló después de este paso), no falla acá, solo lo informa y sigue.
+      - name: Check if EKS cluster exists
+        id: cluster_check
+        run: |
+          if aws eks describe-cluster --name "${{ needs.config.outputs.cluster_name }}" --region "${{ needs.config.outputs.region }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "ℹ️ El cluster ${{ needs.config.outputs.cluster_name }} no existe (o ya fue borrado). Se omite la limpieza de k8s."
+          fi
+
+      - name: Update kubeconfig
+        if: steps.cluster_check.outputs.exists == 'true'
+        run: |
+          aws eks update-kubeconfig \
+            --region "${{ needs.config.outputs.region }}" \
+            --name "${{ needs.config.outputs.cluster_name }}"
+
+      - uses: azure/setup-helm@v4
+        if: steps.cluster_check.outputs.exists == 'true'
+
+      - name: Uninstall ingress-nginx
+        if: steps.cluster_check.outputs.exists == 'true'
+        run: |
+          if helm status ingress-nginx -n ingress-nginx >/dev/null 2>&1; then
+            helm uninstall ingress-nginx -n ingress-nginx --wait --timeout 5m
+          else
+            echo "ℹ️ El release ingress-nginx no existe, no hay nada que desinstalar."
+          fi
+
+      - name: Wait for the AWS load balancer to be fully deleted
+        if: steps.cluster_check.outputs.exists == 'true'
+        run: |
+          echo "Esperando a que AWS termine de eliminar el load balancer de ingress-nginx..."
+          for i in $(seq 1 30); do
+            remaining=$(aws resourcegroupstaggingapi get-resources \
+              --resource-type-filters elasticloadbalancing \
+              --tag-filters Key=kubernetes.io/service-name,Values=ingress-nginx/ingress-nginx-controller \
+              --query 'length(ResourceTagMappingList)' --output text)
+            if [ "${remaining}" = "0" ]; then
+              echo "✅ Load balancer eliminado."
+              exit 0
+            fi
+            echo "   Todavía existe (intento ${i}/30), esperando 20s..."
+            sleep 20
+          done
+          echo "❌ El load balancer de ingress-nginx sigue existiendo después de ~10 min. Revisa la consola de AWS (EC2 → Load Balancers) antes de seguir con terraform destroy."
+          exit 1
+
+      # Prolijidad: borra el resto de los manifiestos de k8s_manifests, en
+      # orden inverso al del deploy. No es estrictamente necesario (destruir
+      # el cluster se los lleva a todos), pero deja el ambiente limpio si el
+      # destroy de Terraform se corre más tarde o falla a mitad de camino.
+      - name: Delete remaining k8s manifests
+        if: steps.cluster_check.outputs.exists == 'true'
+        run: |
+          echo '${{ needs.config.outputs.k8s_manifests }}' | jq -r 'reverse | .[]' | while read -r dir; do
+            echo "::group::kubectl delete ($dir)"
+            kubectl delete -f "$dir" --ignore-not-found
+            echo "::endgroup::"
+          done
+
+  # -----------------------------------------------------------------------
+  # 2. terraform destroy de cada stack en tf_stacks, en orden INVERSO al del
+  #    deploy (se lleva EKS, RDS, Secrets Manager, repos ECR, etc., según lo
+  #    que gestione cada stack).
+  # -----------------------------------------------------------------------
+  terraform-destroy:
+    environment: ${{ inputs.environment }}
+    needs: [config, teardown-k8s]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ needs.config.outputs.region }}
+
+      - name: Read required Terraform version
+        # terraform/.terraform-version es opcional: si el repo no lo tiene,
+        # se usa 1.12.0 como versión por defecto.
+        id: tf_version
+        run: |
+          if [ -f terraform/.terraform-version ]; then
+            version=$(cat terraform/.terraform-version)
+          else
+            version="1.12.0"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ steps.tf_version.outputs.version }}
+
+      - name: Destroy each terraform stack, in reverse order
+        env:
+          DB_USERNAME: ${{ secrets.DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          TF_STATE_BUCKET_NAME: ${{ vars.TF_STATE_BUCKET_NAME }}
+          REPO_NAME: ${{ github.repository }}
+        run: |
+          repo_name="${REPO_NAME##*/}"
+
+          if [ "${{ inputs.environment }}" = "tutor" ]; then
+            env_environment="${{ needs.config.outputs.default_env }}"
+          else
+            env_environment="${{ inputs.environment }}"
+          fi
+
+          # DB_USERNAME/DB_PASSWORD son opcionales, solo se pasan a terraform
+          # si vienen configurados.
+          db_vars=()
+          if [ -n "$DB_USERNAME" ]; then
+            db_vars+=("-var=db_username=${DB_USERNAME}")
+          fi
+          if [ -n "$DB_PASSWORD" ]; then
+            db_vars+=("-var=db_password=${DB_PASSWORD}")
+          fi
+
+          echo '${{ needs.config.outputs.tf_stacks }}' | jq -r 'reverse | .[]' | while read -r stack_name; do
+            stack_dir="terraform/stacks/${stack_name}"
+            # terraform/stacks/<nombre> tiene siempre la misma profundidad
+            # (3 niveles), así que la ruta de vuelta a la raíz del repo
+            # siempre es "../../../" (terraform init/destroy corren con
+            # working-directory dentro del propio stack).
+            env_dir="../../../terraform/environments/${env_environment}/${stack_name}"
+
+            echo "::group::terraform destroy ($stack_name)"
+            pushd "$stack_dir" >/dev/null
+
+            if [ "${{ inputs.environment }}" = "tutor" ]; then
+              terraform init -reconfigure \
+                -backend-config="${env_dir}/backend.tfvars" \
+                -backend-config="bucket=${TF_STATE_BUCKET_NAME}" \
+                -backend-config="key=${repo_name}/${stack_name}/terraform.tfstate" \
+                -backend-config="region=us-east-1"
+            else
+              terraform init -reconfigure -backend-config="${env_dir}/backend.tfvars"
+            fi
+            terraform destroy \
+              "${db_vars[@]}" \
+              -var-file="${env_dir}/terraform.tfvars" \
+              -auto-approve
+
+            popd >/dev/null
+            echo "::endgroup::"
+          done

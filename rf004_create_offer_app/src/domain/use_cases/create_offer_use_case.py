@@ -1,20 +1,22 @@
 """Create offer use case for RF-004.
 
 Orchestrates the full offer creation flow:
-1. Fetch route data (via Routes service) for score calculation (hard
-   dependency, an unreachable service propagates as a 503).
-2. Calculate the score using the confirmed formula.
-3. Call POST /offers to persist the offer (hard dependency).
-4. Persist the score via POST /scores.
+1. Call POST /offers to persist the offer (hard dependency; an
+   unreachable service propagates as a 503 with no write behind it).
+2. Fetch route data (via Routes service) and calculate the score using
+   the confirmed formula.
+3. Persist the score via POST /scores.
 
 Consistency (saga compensation, see ``docs/solution-patterns.md``):
   The flow performs two writes on two independently owned stores (Offers,
-  Scores) with no distributed transaction. If the score stage fails with
-  an *integration* error after the offer was created, the orchestrator
-  runs the compensating action (delete the just created offer) so the
-  system ends consistent: either both writes exist or neither does.
-  A failed compensation is logged, not fatal: the original 503 is what
-  the client receives.
+  Scores) with no distributed transaction. Because the offer is the first
+  write, every failure that happens after it (an unreachable Routes
+  service, a missing route, or an unreachable Scores service) triggers
+  the compensating action (delete the just created offer) so the system
+  ends consistent: either both writes exist or neither does. The original
+  error still reaches the client (503 with the standard message, or the
+  documented 404 for a missing route). A failed compensation is logged,
+  not fatal: the original error is what the client receives.
 """
 
 import logging
@@ -25,7 +27,12 @@ from domain.models.schemas import RF004CreateOfferRequest
 from domain.ports.offers_port import OffersPort
 from domain.ports.routes_port import RoutesPort
 from domain.ports.scores_port import ScoresPort
-from errors import OffersServiceUnavailableError, ScoresServiceUnavailableError
+from errors import (
+    OffersServiceUnavailableError,
+    RouteNotFoundError,
+    RoutesServiceUnavailableError,
+    ScoresServiceUnavailableError,
+)
 
 logger = logging.getLogger("rf004_create_offer_app")
 
@@ -76,36 +83,30 @@ class CreateOfferUseCase:
     ) -> dict:
         """Execute the full offer creation flow.
 
-        1. Fetch route data for score calculation (if routes port available).
-        2. Calculate the score value.
-        3. Create the offer via POST /offers (through OffersPort).
-        4. Persist the score via ScoresPort.
+        1. Create the offer via POST /offers (through OffersPort).
+        2. Fetch route data for score calculation (if routes port
+           available) and calculate the score value.
+        3. Persist the score via ScoresPort.
 
-        Routes and Offers are hard dependencies: their unavailable errors
-        propagate to the router (503). The score stage is compensated:
-        when it fails with an integration error, the just created offer
-        is deleted (compensating action) and the original
-        ScoresServiceUnavailableError propagates to the router (503), so
-        no orphaned offer remains.
+        Offers is a hard dependency: its unavailable error propagates to
+        the router (503) and no write has happened yet, so nothing is
+        left behind. The route fetch and the score stage run AFTER the
+        offer was persisted, so when either of them fails with an
+        integration error the orchestrator compensates (deletes the just
+        created offer) before propagating the original error: the flow
+        ends consistent (either both writes exist or neither does). A
+        missing route (business 404) is compensated the same way and the
+        404 still reaches the client, so the documented contract is
+        preserved.
 
         Returns:
             A dict with keys: id, userId, createdAt, postId,
             score_persisted.
         """
-        score_value = None
-
-        if self.routes is not None:
-            # Hard dependency: a RoutesServiceUnavailableError propagates
-            # to the router (503), exactly as the sequence diagram shows.
-            route_info = self.routes.get_route(post.routeId)
-
-            score_value = _calculate_score(
-                offer_amount=payload.offer,
-                size=payload.size,
-                bag_cost=route_info.bagCost,
-            )
-
-        # Step 3: Create the offer through the Offers service API.
+        # Step 1: Create the offer through the Offers service API. When
+        # the Offers service is unreachable the error propagates to the
+        # router (503) and the write never happened: nothing to
+        # compensate.
         result = self.offers.create_offer(
             postId=post.id,
             userId=user_id,
@@ -119,9 +120,30 @@ class CreateOfferUseCase:
         user_id_result = result["userId"]
         created_at = result["createdAt"]
 
+        score_value = None
+
+        if self.routes is not None:
+            # Step 2: fetch the route data and calculate the score. This
+            # runs after the offer was persisted, so a failure here
+            # (integration or business) is compensated: the just created
+            # offer is deleted and the original error propagates to the
+            # router (503 for an unreachable Routes service, 404 for a
+            # missing route).
+            try:
+                route_info = self.routes.get_route(post.routeId)
+            except (RoutesServiceUnavailableError, RouteNotFoundError):
+                self._compensate_offer(offer_id)
+                raise
+
+            score_value = _calculate_score(
+                offer_amount=payload.offer,
+                size=payload.size,
+                bag_cost=route_info.bagCost,
+            )
+
         score_persisted = False
 
-        # Step 4: Persist the score. An integration failure here is
+        # Step 3: Persist the score. An integration failure here is
         # compensated: the just created offer is deleted so the flow ends
         # consistent (either both writes exist or neither does), and the
         # original error propagates to the router (503).
@@ -145,13 +167,15 @@ class CreateOfferUseCase:
         }
 
     def _compensate_offer(self, offer_id: str) -> None:
-        """Compensate a partial failure (score persistence failed with 503).
+        """Compensate a partial failure after the offer was persisted.
 
         The offer created by this request is deleted through the Offers
         service public API (``DELETE /offers/{id}``), reusing the owning
-        service's own contract. A compensation failure is logged (the
-        Offers service is down too) and swallowed: the original 503 is
-        what the client receives.
+        service's own contract. It is called when the route fetch or the
+        score stage fails after the offer write. A compensation failure
+        is logged (the Offers service is down too) and swallowed: the
+        original error (503, or the documented 404 for a missing route)
+        is what the client receives.
         """
         logger.warning(
             "RF004: score persistence failed; compensating by deleting "

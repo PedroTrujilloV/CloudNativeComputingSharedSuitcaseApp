@@ -1,0 +1,101 @@
+@startuml infra-overview
+
+title From git push to a live request hitting the Ingress
+
+skinparam backgroundColor #FFFFFF
+skinparam defaultTextAlignment left
+
+actor "You (developer)" as Dev
+
+package "GitHub Repository" as Repo {
+  folder "terraform/\n  stacks/apps/*.tf\n  environments/<env>/apps/\n    backend.tfvars\n    terraform.tfvars" as TFCode
+  folder "k8s/\n  *.yml manifests" as K8sCode
+  folder "users_app/, posts_app/, ...\n  each with a Dockerfile" as AppCode
+  folder "config.yaml\n(tf_stacks, k8s_manifests, apps)" as Config
+}
+
+package "GitHub Environment: student1\n(secrets, NOT in git)" as GHSecrets {
+  card "AWS_ACCESS_KEY_ID\nAWS_SECRET_ACCESS_KEY\nAWS_SESSION_TOKEN\n(DB_USERNAME / DB_PASSWORD - optional)" as Secrets
+}
+
+package "GitHub Actions - ci_entrega2_deploy.yml" as Pipeline {
+  card "Job 1: config\nreads config.yaml,\nvalidates required secrets exist" as Job1
+  card "Job 2: terraform apply\nfor each stack in tf_stacks (in order)" as Job2
+  card "Job 3: build & push images\nfor each app in config.yaml -> ECR" as Job3
+  card "Job 4: kubectl apply\nfor each folder in k8s_manifests (in order)" as Job4
+}
+
+package "AWS (us-east-1)" as AWS {
+
+  package "Provisioned by Terraform" as TFOutput {
+    node "EKS Cluster\n(control plane + worker nodes)" as EKS
+    database "RDS\n(shared_db, PostgreSQL 5432)" as RDS
+    folder "ECR repositories\n(one per app, empty at first)" as ECR
+    card "S3 bucket\n(Terraform remote state)" as TFState
+  }
+
+  package "Deployed by kubectl, running inside EKS" as K8sRuntime {
+    component "ingress (ALB)" as Ingress
+    component "rf003 / rf004 / rf005\npods + services" as Orchestrators
+    component "users / posts / offers /\nroutes / scores\npods + services" as Apps
+  }
+}
+
+actor "End user" as EndUser
+
+' ---------------- flow ----------------
+Dev -down-> Repo : git push
+Dev -down-> Pipeline : Run workflow\n(selects environment = student1)
+
+Pipeline -down-> GHSecrets : injects secrets\nas env vars
+
+Job1 -down-> Job2
+Job2 -down-> Job3
+Job3 -down-> Job4
+
+Job2 ..> TFCode : reads .tf + .tfvars
+Job2 -right-> TFState : reads/writes state\n(tracks what already exists)
+Job2 ==> EKS : creates/updates
+Job2 ==> RDS : creates/updates
+Job2 ==> ECR : creates/updates\n(empty repos)
+
+Job3 ..> AppCode : docker build\n(per Dockerfile)
+Job3 ==> ECR : docker push\n(image_name:image_tag)
+
+Job4 ..> K8sCode : reads *.yml
+Job4 ==> EKS : kubectl apply\n(talks to K8s API,\nnot AWS API)
+EKS -down-> K8sRuntime : schedules pods,\npulls images from ECR
+
+Apps -up-> RDS : each app's own\nschema, port 5432
+
+EndUser -right-> Ingress : HTTPS request
+Ingress -down-> Orchestrators : routes by path\n(/rf003/*, /rf004/*, /rf005/*)
+Ingress -down-> Apps : routes by path\n(/users/*, /posts/*, ...)
+
+note bottom of Job2
+  Terraform only knows about AWS
+  resources (EKS cluster itself,
+  RDS, ECR, IAM, networking).
+  It has no concept of "Pod" or
+  "Deployment" - those are
+  Kubernetes objects, created
+  in a separate step (Job 4).
+end note
+
+note bottom of Job4
+  kubectl talks to the Kubernetes
+  API of the EKS cluster that
+  Terraform already created.
+  This is a different API/tool
+  than Terraform, even though
+  both run in the same pipeline.
+end note
+
+note right of GHSecrets
+  Never committed to git.
+  Only exist as GitHub
+  Environment secrets, injected
+  into the pipeline at runtime.
+end note
+
+@enduml

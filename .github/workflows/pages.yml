@@ -3,6 +3,7 @@ name: Deploy GitHub Pages
 on:
   push:
     branches:
+     # - '**'
       - main   # default main change if your default branch has a different name
 
   # Allows manually triggering the workflow from the Actions tab
@@ -36,6 +37,17 @@ jobs:
           cp scores_app/README.md docs/apps/scores_app.md
           cp rf003_create_post_app/README.md docs/apps/rf003_create_post_app.md
           cp rf004_create_offer_app/README.md docs/apps/rf004_create_offer_app.md
+          cp rf005_query_post_app/README.md docs/apps/rf005_query_post_app.md
+
+      - name: Stage Terraform stack READMEs into docs
+        run: |
+          mkdir -p docs/terraform
+          for stack in network data compute; do
+            if [ -f "terraform/stacks/$stack/README.md" ]; then
+              cp "terraform/stacks/$stack/README.md" "docs/terraform/${stack}-README.md"
+            fi
+          done
+         
 
       - name: Setup Pages
         uses: actions/configure-pages@v5

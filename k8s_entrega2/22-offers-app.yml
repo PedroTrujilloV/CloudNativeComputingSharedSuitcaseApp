@@ -1,0 +1,106 @@
+# Kubernetes deployment for offers_app
+# Minikube: app only; shared-db-service provides Postgres (k8s_entrega2/local-only/15-shared-db.yml)
+# Namespace: default
+# DB credentials: managed via AWS Secrets Manager by External Secrets Operator
+#
+# ENVIRONMENT NOTES:
+#   Local minikube = shared-db-service (own database per app)
+#   AWS = shared RDS (see k8s_entrega2/00-aws-secrets-shared-db.yml)
+#
+# Usage (from repository root):
+#   kubectl apply -f k8s_entrega2/22-offers-app.yml
+#   minikube service offers-app-service --url
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: offers-app
+  labels:
+    app: offers-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: offers-app
+  template:
+    metadata:
+      labels:
+        app: offers-app
+    spec:
+      containers:
+        - name: offers-app
+          image: ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/offers-app:v0.0.0
+          ports:
+            - containerPort: 8000
+          env:
+            - name: APP_NAME
+              value: "offers_app"
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: DB_DRIVER
+              value: "postgresql"
+            # Local minikube: all DB values from offers-app-secrets (shared-db-service)
+            # AWS production: use k8s_entrega2/00-aws-secrets-shared-db.yml model instead
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: offers-app-secrets
+                  key: DB_HOST
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: offers-app-secrets
+                  key: DB_PORT
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: offers-app-secrets
+                  key: DB_NAME
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: offers-app-secrets
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: offers-app-secrets
+                  key: DB_PASSWORD
+          livenessProbe:
+            httpGet:
+              path: /offers/ping
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /offers/ping
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            limits:
+              cpu: "150m"
+              memory: "150Mi"
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: offers-app-service
+  labels:
+    app: offers-app
+spec:
+  type: ClusterIP
+  selector:
+    app: offers-app
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP

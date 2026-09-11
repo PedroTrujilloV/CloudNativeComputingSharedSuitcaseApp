@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: users-app-secrets
+type: Opaque
+stringData:
+  DB_HOST: "${DB_HOST}"
+  DB_PORT: "${DB_PORT}"
+  DB_NAME: "${DB_NAME}"
+  DB_USER: "${DB_USERNAME}"
+  DB_PASSWORD: "${DB_PASSWORD}"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: posts-app-secrets
+type: Opaque
+stringData:
+  DB_HOST: "${DB_HOST}"
+  DB_PORT: "${DB_PORT}"
+  DB_NAME: "${DB_NAME}"
+  DB_USER: "${DB_USERNAME}"
+  DB_PASSWORD: "${DB_PASSWORD}"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: offers-app-secrets
+type: Opaque
+stringData:
+  DB_HOST: "${DB_HOST}"
+  DB_PORT: "${DB_PORT}"
+  DB_NAME: "${DB_NAME}"
+  DB_USER: "${DB_USERNAME}"
+  DB_PASSWORD: "${DB_PASSWORD}"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: routes-app-secrets
+type: Opaque
+stringData:
+  DB_HOST: "${DB_HOST}"
+  DB_PORT: "${DB_PORT}"
+  DB_NAME: "${DB_NAME}"
+  DB_USER: "${DB_USERNAME}"
+  DB_PASSWORD: "${DB_PASSWORD}"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: scores-app-secrets
+type: Opaque
+stringData:
+  DB_HOST: "${DB_HOST}"
+  DB_PORT: "${DB_PORT}"
+  DB_NAME: "${DB_NAME}"
+  DB_USER: "${DB_USERNAME}"
+  DB_PASSWORD: "${DB_PASSWORD}"

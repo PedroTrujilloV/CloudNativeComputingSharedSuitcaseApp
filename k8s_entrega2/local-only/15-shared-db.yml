@@ -1,0 +1,155 @@
+# ============================================================
+# local-only: Shared Postgres instance for Minikube local testing
+# ============================================================
+# NOT included in config.yaml k8s_manifests — this folder is only
+# deployed by scripts/local-deploy.sh via an explicit second apply.
+#
+# In AWS production (EKS), the real database is RDS; this manifest
+# mirrors the shared-db model so local testing uses the same service
+# name (shared-db-service) as cloud secrets.
+#
+# Creates:
+#   - ConfigMap with an init.sh script that creates 5 roles + 5 databases
+#     and makes each app role the owner of the public schema in its database
+#   - shared-db Deployment  (postgres:16-alpine, pg_isready probes)
+#   - shared-db-service     (ClusterIP on port 5432)
+#
+# WHY init.sh AND NOT init.sql:
+#   The official postgres image runs .sql files with `psql -f` connected to
+#   the default database only, so per-database statements (e.g.
+#   `ALTER SCHEMA public OWNER TO <app_user>`) cannot run in a .sql file.
+#   A .sh file is executed as a script and can open a connection to each
+#   database individually.
+#   Postgres 15+ no longer grants CREATE on schema public to non-owners,
+#   so each app role MUST own the public schema of its database or the
+#   app crashes at startup with "permission denied for schema public"
+#   when SQLAlchemy runs Base.metadata.create_all().
+# ============================================================
+
+# ---- Init ConfigMap (runs once when the pod starts) ----
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shared-db-init
+data:
+  init.sh: |
+    #!/bin/bash
+    set -e
+
+    # Provisions one app: role + database + schema ownership.
+    # Called for each of the 5 apps below.
+    provision_app() {
+      local app="$1"
+
+      # Role + database (run against the default 'postgres' database)
+      psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres <<EOSQL
+    DO \$\$
+    BEGIN
+      IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '${app}_user') THEN
+        CREATE ROLE ${app}_user WITH LOGIN PASSWORD '${app}_pass';
+      END IF;
+    END
+    \$\$;
+    SELECT 'CREATE DATABASE ${app}_db' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '${app}_db')\gexec
+    GRANT ALL PRIVILEGES ON DATABASE ${app}_db TO ${app}_user;
+    EOSQL
+
+      # Schema ownership (run INSIDE the app's own database)
+      psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "${app}_db" <<EOSQL
+    ALTER SCHEMA public OWNER TO ${app}_user;
+    EOSQL
+
+      echo "init.sh: ${app} provisioned"
+    }
+
+    provision_app users
+    provision_app posts
+    provision_app offers
+    provision_app routes
+    provision_app scores
+
+---
+# ---- shared-db Deployment ----
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shared-db
+  labels:
+    app: shared-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: shared-db
+  template:
+    metadata:
+      labels:
+        app: shared-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: "postgres"
+            - name: POSTGRES_PASSWORD
+              value: "postgres"
+            - name: PGDATA
+              value: "/var/lib/postgresql/data/pgdata"
+          volumeMounts:
+            - name: db-data
+              mountPath: /var/lib/postgresql/data
+            - name: init-script
+              mountPath: /docker-entrypoint-initdb.d
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - postgres
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - postgres
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+      volumes:
+        - name: db-data
+          emptyDir: {}
+        - name: init-script
+          configMap:
+            name: shared-db-init
+
+---
+# ---- shared-db Service (ClusterIP) ----
+apiVersion: v1
+kind: Service
+metadata:
+  name: shared-db-service
+  labels:
+    app: shared-db
+spec:
+  type: ClusterIP
+  selector:
+    app: shared-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP

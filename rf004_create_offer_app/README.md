@@ -10,16 +10,18 @@ lets an authenticated user create an offer on a post they do not own.
 > request body validation (HTTP 400), and the post level preconditions
 > through the existing Posts API (post exists, the post is not owned by
 > the caller, the post has not expired). A request that passes every
-> gate then runs the offer creation stage: the route is fetched through
-> the Routes public API (`GET /routes/{routeId}`), its utility score is
-> calculated from the route `bagCost`, the offer is persisted through the
-> Offers public API (`POST /offers`), and the score is persisted through
+> gate then runs the offer creation stage: the offer is persisted through
+> the Offers public API (`POST /offers`), the route is fetched through the
+> Routes public API (`GET /routes/{routeId}`) and its utility score is
+> calculated from the route `bagCost`, and the score is persisted through
 > the Scores public API (`POST /scores`). A fully valid request answers
 > `201` with the offer data and a summary message. Consistency (saga
-> compensation, see *Consistency and error handling* below): if the score
-> stage fails after the offer was created (Scores service unavailable),
-> the orchestrator deletes the just created offer (compensating action)
-> and answers `503` with the standard message, so no orphaned offer
+> compensation, see *Consistency and error handling* below): the offer is
+> the first write of the flow, so any failure after it (an unreachable
+> Routes service, a missing route, or an unreachable Scores service)
+> makes the orchestrator delete the just created offer (compensating
+> action) before answering the client (`503` with the standard message,
+> or the documented `404` for a missing route), so no orphaned offer
 > remains. An unreachable Users, Posts, Routes, Offers, or Scores
 > service is a hard failure: the endpoint answers `503`.
 
@@ -105,27 +107,32 @@ src/
    (compared in UTC), `412` with an empty body.
 6. **Offer creation stage** the request reaches this point only when
    every gate passed. The orchestrator then:
-   1. Fetches the post route through the Routes service
+   1. Persists the offer through the Offers service `POST /offers`
+      (unreachable Offers service is `503`; the write never happened, so
+      nothing is left behind).
+   2. Fetches the post route through the Routes service
       `GET /routes/{routeId}` to read its `bagCost` (unreachable Routes
-      service is `503`, a missing route is `404`).
-   2. Calculates the utility score with the formula
+      service is `503`, a missing route is `404`; in both cases the
+      offer created in step 1 is first compensated, see *Consistency
+      and error handling* below).
+   3. Calculates the utility score with the formula
       `utilidad = offer - (bag occupancy % x route bagCost)`, where the
       occupancy is `100%` for `LARGE`, `50%` for `MEDIUM`, and `25%`
       for `SMALL`.
-   3. Persists the offer through the Offers service `POST /offers`
-      (unreachable Offers service is `503`).
    4. Persists the score through the Scores service `POST /scores`
       (unreachable Scores service is `503` after the compensating
       deletion of the just created offer, see *Consistency and error
       handling* below).
 
-   Steps 3 and 4 are the two writes of the flow and follow the
+   Steps 1 and 4 are the two writes of the flow and follow the
    **consistency strategy** (saga compensation): either both writes
-   exist or neither does. If step 4 fails with an integration error, the
-   orchestrator runs the compensating action (delete the offer created in
-   step 3 through `DELETE /offers/{id}`) and answers `503` with the
-   standard message. On the happy path the summary is
-   `"Oferta creada exitosamente."`.
+   exist or neither does. Because the offer is the first write, a
+   failure in steps 2 or 4 (an unreachable Routes service, a missing
+   route, or an unreachable Scores service) makes the orchestrator run
+   the compensating action (delete the offer created in step 1 through
+   `DELETE /offers/{id}`) before answering the client (`503` with the
+   standard message, or the documented `404` for a missing route). On
+   the happy path the summary is `"Oferta creada exitosamente."`.
 
 Because every gate runs in a FastAPI dependency or before the handler
 body returns, **no downstream business call is made unless the token is
@@ -180,11 +187,13 @@ its score.
 
 | Failure during the flow | Client sees | Data left behind |
 |---|---|---|
-| Gate stage: business 400/404/412 (body, missing post, own post, expired post, missing route) | the matching status with the documented body | none (no write performed) |
-| Gate stage: integration failure (Users, Posts, or Routes unreachable) | `503` with the standard message | none (the failure happens before the offer is created) |
+| Gate stage: business 400/404/412 (body, missing post, own post, expired post) | the matching status with the documented body | none (no write performed) |
+| Gate stage: integration failure (Users or Posts unreachable) | `503` with the standard message | none (the failure happens before the offer is created) |
 | Offer stage: integration failure (Offers unreachable) | `503` with the standard message | none (the write never happened) |
+| Route stage (after the offer write): Routes unreachable | `503` with the standard message | **none** the offer is deleted via `DELETE /offers/{id}` (compensating action) |
+| Route stage (after the offer write): the route does not exist | `404` with an empty body | **none** the offer is deleted via `DELETE /offers/{id}` (compensating action) |
 | Score stage: integration failure (Scores unreachable) | `503` with the standard message | **none** the offer is deleted via `DELETE /offers/{id}` (compensating action) |
-| Score stage: integration failure and the compensation also fails (Offers also down) | `503` with the standard message (original error wins) | a null safe orphan may remain until the Offers service recovers (an offer without a score reads as `null` in RF-005); the event is logged at ERROR |
+| Route or score stage: the compensation also fails (Offers also down) | the original error wins (`503` with the standard message, or `404` for a missing route) | a null safe orphan may remain until the Offers service recovers (an offer without a score reads as `null` in RF-005); the event is logged at ERROR |
 
 Implementation notes:
 
@@ -197,12 +206,14 @@ Implementation notes:
   never trigger compensation.
 - The compensation lives in
   `CreateOfferUseCase._compensate_offer`
-  (`src/domain/use_cases/create_offer_use_case.py`): when the score stage
-  raises `ScoresServiceUnavailableError`, the use case calls
+  (`src/domain/use_cases/create_offer_use_case.py`): when the route fetch
+  raises `RoutesServiceUnavailableError` or `RouteNotFoundError`, or the
+  score stage raises `ScoresServiceUnavailableError`, the use case calls
   `OffersPort.delete_offer` (the Offers service `DELETE /offers/{id}`
   endpoint, reused as is) and then re raises the original error so the
-  router answers 503. A compensation failure is swallowed (logged at
-  ERROR) so the original 503 always reaches the client.
+  router answers with the original status (503, or 404 for a missing
+  route). A compensation failure is swallowed (logged at ERROR) so the
+  original error always reaches the client.
 - **Observability:** the score stage integration failure, the
   compensating action and its outcome are logged (`INFO`/`WARNING`/
   `ERROR`), for example `RF004: score persistence failed; compensating by
@@ -310,19 +321,22 @@ poetry run pytest --cov=src --cov-fail-under=70
   4xx / 5xx / network error), the auth gate use case, the preconditions
   use case (unknown post, own post, expired post, own post before
   expiry, naive `expireAt` treated as UTC, valid post), the create offer
-  use case (score formula for the three sizes, hard fail when Routes is
-  unavailable, compensation and propagation when Scores is unavailable
-  after the offer was created, and the swallowed compensation failure
-  when Offers is also down) and the router (403/401/400/404/412/503/201
-  paths, including the assertions that no downstream call is made when
-  the token or the body is invalid).
+  use case (score formula for the three sizes, compensation and
+  propagation when Routes is unavailable or its route is missing after
+  the offer was created, compensation and propagation when Scores is
+  unavailable after the offer was created, and the swallowed
+  compensation failure when Offers is also down) and the router
+  (403/401/400/404/412/503/201 paths, including the missing route 404
+  and the assertions that no downstream call is made when the token or
+  the body is invalid).
 - **Consistency integration tests**
   (`tests/unit/adapters/http/test_rf004_consistency_integration.py`)
   exercise the full request path with the real HTTP clients over a mock
   transport: a Scores outage mid flow answers 503 and the created offer
-  is deleted (no orphan remains), an Offers outage answers 503 with no
-  write at all, and the happy path persists both the offer and the
-  score.
+  is deleted (no orphan remains), a missing route answers 404 (empty
+  body) and the created offer is deleted (no orphan remains), an Offers
+  outage answers 503 with no write at all, and the happy path persists
+  both the offer and the score.
 - A Postman collection for manual verification lives in
   `tests/api/evaluate_rf004.json`, and a dedicated consistency collection
   lives in `tests/api/evaluate_rf004_consistency.json`.
@@ -488,9 +502,16 @@ curl -s -w "\n%{http_code}\n" -X POST http://localhost:8001/rf004/posts/$POST_ID
 # -> 503 {"msg": "El servicio está temporalmente fuera de servicio."}
 
 # 12. Downstream service down -> 503 with the standard message (stop the
-#     Posts, the Routes, or the Offers service first, for example kill
-#     its uvicorn process, then repeat scenario 10; no write happened
-#     so there is nothing to compensate)
+#     Posts or the Offers service first, for example kill its uvicorn
+#     process, then repeat scenario 10; no write happened so there is
+#     nothing to compensate)
+# -> 503 {"msg": "El servicio está temporalmente fuera de servicio."}
+
+# 13. Routes service down -> 503 with the standard message, and the
+#     offer created mid flow is compensated (stop the Routes service
+#     first, then repeat scenario 10 with a fresh valid post, and
+#     afterwards query the Offers service: the offer from the failed
+#     request is not in the list)
 # -> 503 {"msg": "El servicio está temporalmente fuera de servicio."}
 ```
 
@@ -524,6 +545,14 @@ curl -s "http://localhost:8004/offers?post=$POST_ID&owner=<CALLER_ID>"
 
 # 5. Restart the Scores service on 8005 and repeat scenario 10 with a
 #    fresh valid post -> 201 again (the flow works after the outage).
+
+# 6. The same mid flow guarantee holds for the route stage: stop the
+#    Routes service (or point the post at a nonexistent routeId, which
+#    answers 404) and repeat scenario 10 with a fresh valid post. The
+#    offer created mid flow is compensated in both cases, so the
+#    Offers count for that post stays 0:
+curl -s "http://localhost:8004/offers/count"
+# -> {"count": 0}
 ```
 
 On Minikube/EKS the same check uses `kubectl scale deployment
@@ -558,3 +587,56 @@ offers of that post owned by the caller and asserts the list is empty
 (the offer created mid flow was compensated). Restart the Scores
 service, then run **Offer request after recovery** to confirm the flow
 answers `201` again.
+
+### Manual verification with Postman (consistency collection, newman)
+
+The consistency acceptance criteria are covered by
+`tests/api/evaluate_rf004_consistency.json` (the same file the grader
+runs). It needs a single environment variable, `BASE_PATH`, pointing at
+the URL prefix that routes to the apps (the ingress path in the cluster,
+or a local fan out proxy on `http://127.0.0.1:9001` for local runs). Each
+outage scenario follows the same three steps: run the **Reset** folder,
+stop (or scale to zero) one downstream service, run the scenario folder,
+then restore the service and run **Verificar Consistencia** to assert the
+offers count is zero.
+
+```bash
+# Scenario 1: Users down (auth gate, no writes possible)
+newman run tests/api/evaluate_rf004_consistency.json -e env.json --folder "Reset"
+# stop users-app (kill the process, or kubectl scale deployment users-app --replicas=0)
+newman run tests/api/evaluate_rf004_consistency.json -e env.json \
+  --env-var USER_TOKEN=FAKETOKEN \
+  --env-var POST_ID=bf8792d2-3097-11ee-be56-0242ac120002 \
+  --folder "Test RF-004"
+# -> 503 {"msg": "El servicio está temporalmente fuera de servicio."}
+# restore users-app, then:
+newman run tests/api/evaluate_rf004_consistency.json -e env.json --folder "Verificar Consistencia"
+# -> offers/count == 0
+
+# Scenario 2: Offers down (the offer write never happens)
+newman run tests/api/evaluate_rf004_consistency.json -e env.json --folder "Reset"
+# stop offers-app
+newman run tests/api/evaluate_rf004_consistency.json -e env.json --folder "RF-004 Crear oferta"
+# -> 503 with the standard message
+# restore offers-app, then run "Verificar Consistencia" (offers/count == 0)
+
+# Scenario 3: Posts down (the post lookup gate fails, no writes possible)
+newman run tests/api/evaluate_rf004_consistency.json -e env.json --folder "Reset"
+newman run tests/api/evaluate_rf004_consistency.json -e env.json --folder "Crear Recursos"
+# stop posts-app
+newman run tests/api/evaluate_rf004_consistency.json -e env.json \
+  --env-var POST_ID=bf8792d2-3097-11ee-be56-0242ac120002 \
+  --folder "Sesion & RF-004"
+# -> 503 with the standard message
+# restore posts-app, then run "Verificar Consistencia" (offers/count == 0)
+```
+
+`env.json` is a newman environment file with the variables the collection
+uses (at minimum `BASE_PATH`, plus the user credentials and the post
+`expireAt`). Note that in the Offers down scenario the collection creates
+the post with a random (nonexistent) `routeId`: the offer write is
+attempted first, so with the Offers service down the request fails with
+the documented 503 before the route is ever fetched, and no write
+happens (there is nothing to compensate). The grader runs exactly these
+folders against the deployed cluster, so a green local run with the same
+folder order is the manual equivalent of the graded check.

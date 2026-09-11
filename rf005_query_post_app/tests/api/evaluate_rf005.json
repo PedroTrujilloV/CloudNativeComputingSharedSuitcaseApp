@@ -1,0 +1,435 @@
+{
+    "info": {
+        "_postman_id": "rf005-query-post-app",
+        "name": "RF-005 Query Post Manual Verification",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "item": [
+        {
+            "name": "Setup",
+            "item": [
+                {
+                    "name": "Create owner user",
+                    "event": [
+                        {
+                            "type": "prerequest",
+                            "script": {
+                                "exec": [
+                                    ""
+                                ]
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"username\":\"rf005owner\",\"password\":\"Secret123!\",\"email\":\"rf005owner@example.com\",\"dni\":\"12345678\",\"fullName\":\"RF005 Owner\",\"phoneNumber\":\"3001112233\"}"
+                        },
+                        "url": {
+                            "raw": "{{usersUrl}}/users",
+                            "host": [
+                                "{{usersUrl}}"
+                            ],
+                            "path": [
+                                "users"
+                            ]
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Obtain owner token",
+                    "event": [
+                        {
+                            "type": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status is 200', function () {\n    pm.response.to.have.status(200);\n});\nvar data = pm.response.json();\npm.environment.set('TOKEN_OWNER', data.token);"
+                                ]
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"username\":\"rf005owner\",\"password\":\"Secret123!\"}"
+                        },
+                        "url": {
+                            "raw": "{{usersUrl}}/users/auth",
+                            "host": [
+                                "{{usersUrl}}"
+                            ],
+                            "path": [
+                                "users",
+                                "auth"
+                            ]
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Create stranger user",
+                    "event": [
+                        {
+                            "type": "prerequest",
+                            "script": {
+                                "exec": [
+                                    ""
+                                ]
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"username\":\"rf005stranger\",\"password\":\"Secret123!\",\"email\":\"rf005stranger@example.com\",\"dni\":\"87654321\",\"fullName\":\"RF005 Stranger\",\"phoneNumber\":\"3009998877\"}"
+                        },
+                        "url": {
+                            "raw": "{{usersUrl}}/users",
+                            "host": [
+                                "{{usersUrl}}"
+                            ],
+                            "path": [
+                                "users"
+                            ]
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Obtain stranger token",
+                    "event": [
+                        {
+                            "type": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status is 200', function () {\n    pm.response.to.have.status(200);\n});\nvar data = pm.response.json();\npm.environment.set('TOKEN_STRANGER', data.token);"
+                                ]
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"username\":\"rf005stranger\",\"password\":\"Secret123!\"}"
+                        },
+                        "url": {
+                            "raw": "{{usersUrl}}/users/auth",
+                            "host": [
+                                "{{usersUrl}}"
+                            ],
+                            "path": [
+                                "users",
+                                "auth"
+                            ]
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Create test post (via RF-003)",
+                    "event": [
+                        {
+                            "type": "prerequest",
+                            "script": {
+                                "exec": [
+                                    "var now = new Date();\nfunction pad(n) { return String(n).padStart(2, '0'); }\nfunction iso(d) {\n    return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate())\n        + 'T' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ':' + pad(d.getUTCSeconds());\n}\n// Dates must satisfy: now < expireAt <= plannedStartDate < plannedEndDate\npm.environment.set('EXPIRE_AT', iso(new Date(now.getTime() + 14 * 24 * 3600 * 1000)));\npm.environment.set('START_AT', iso(new Date(now.getTime() + 30 * 24 * 3600 * 1000)));\npm.environment.set('END_AT', iso(new Date(now.getTime() + 32 * 24 * 3600 * 1000)));\npm.environment.set('FLIGHT', 'PM' + Date.now());"
+                                ]
+                            }
+                        },
+                        {
+                            "type": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status is 201', function () {\n    pm.response.to.have.status(201);\n});\nvar data = pm.response.json();\nif (pm.response.code === 201) {\n    pm.environment.set('POST_ID', data.data.id);\n}"
+                                ]
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{TOKEN_OWNER}}"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\"flightId\":\"{{FLIGHT}}\",\"expireAt\":\"{{EXPIRE_AT}}\",\"plannedStartDate\":\"{{START_AT}}\",\"plannedEndDate\":\"{{END_AT}}\",\"origin\":{\"airportCode\":\"BOG\",\"country\":\"Colombia\"},\"destiny\":{\"airportCode\":\"MAD\",\"country\":\"Spain\"},\"bagCost\":350}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/rf003/posts",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "rf003",
+                                "posts"
+                            ]
+                        }
+                    },
+                    "response": []
+                }
+            ]
+        },
+        {
+            "name": "Gate Requests",
+            "item": [
+                {
+                    "name": "Health check (200)",
+                    "event": [
+                        {
+                            "type": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status is 200', function () {\n",
+                                    "    pm.response.to.have.status(200);\n",
+                                    "});\n",
+                                    "pm.test('Body is pong', function () {\n",
+                                    "    pm.expect(pm.response.text()).to.eql('pong');\n",
+                                    "});"
+                                ]
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/rf005/ping",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "rf005",
+                                "ping"
+                            ]
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Missing token (403)",
+                    "event": [
+                        {
+                            "type": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status is 403', function () {\n",
+                                    "    pm.response.to.have.status(403);\n",
+                                    "});"
+                                ]
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/rf005/posts/{{POST_ID}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "rf005",
+                                "posts",
+                                "{{POST_ID}}"
+                            ]
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Invalid token (401)",
+                    "event": [
+                        {
+                            "type": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status is 401', function () {\n",
+                                    "    pm.response.to.have.status(401);\n",
+                                    "});"
+                                ]
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer sk_test_rf005_invalid_xyz789"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/rf005/posts/{{POST_ID}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "rf005",
+                                "posts",
+                                "{{POST_ID}}"
+                            ]
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Non-existent post (404)",
+                    "event": [
+                        {
+                            "type": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status is 404', function () {\n",
+                                    "    pm.response.to.have.status(404);\n",
+                                    "});"
+                                ]
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{TOKEN_OWNER}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/rf005/posts/00000000-0000-0000-0000-000000000000",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "rf005",
+                                "posts",
+                                "00000000-0000-0000-0000-000000000000"
+                            ]
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Non-owner access (403)",
+                    "event": [
+                        {
+                            "type": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status is 403', function () {\n",
+                                    "    pm.response.to.have.status(403);\n",
+                                    "});"
+                                ]
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{TOKEN_STRANGER}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/rf005/posts/{{POST_ID}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "rf005",
+                                "posts",
+                                "{{POST_ID}}"
+                            ]
+                        }
+                    },
+                    "response": []
+                }
+            ]
+        },
+        {
+            "name": "Owner Access",
+            "item": [
+                {
+                    "name": "Owner queries own post (200)",
+                    "event": [
+                        {
+                            "type": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status is 200', function () {\n    pm.response.to.have.status(200);\n});\npm.test('Response body has data.route and data.offers', function () {\n    var data = pm.response.json();\n    pm.expect(data).to.have.property('data');\n    pm.expect(data.data).to.have.property('route');\n    pm.expect(data.data).to.have.property('offers');\n    pm.expect(data.data.route).to.have.property('origin');\n    pm.expect(data.data.route).to.have.property('destiny');\n    pm.expect(data.data.route.origin).to.have.property('airportCode');\n    pm.expect(data.data.route.origin).to.have.property('country');\n    pm.expect(data.data.route.destiny).to.have.property('airportCode');\n    pm.expect(data.data.route.destiny).to.have.property('country');\n    pm.expect(data.data.offers).to.be.an('array');\n});\npm.test('Offers are sorted by score descending (nulls last)', function () {\n    var offers = pm.response.json().data.offers;\n    for (var i = 1; i < offers.length; i++) {\n        var prev = offers[i-1].score === null ? -Infinity : offers[i-1].score;\n        var cur = offers[i].score === null ? -Infinity : offers[i].score;\n        pm.expect(prev).to.be.at.least(cur);\n    }\n});"
+                                ]
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{TOKEN_OWNER}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/rf005/posts/{{POST_ID}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "rf005",
+                                "posts",
+                                "{{POST_ID}}"
+                            ]
+                        }
+                    },
+                    "response": []
+                }
+            ]
+        }
+    ],
+    "variable": [
+        {
+            "key": "baseUrl",
+            "value": "http://localhost:8005"
+        },
+        {
+            "key": "usersUrl",
+            "value": "http://localhost:8000"
+        }
+    ]
+}

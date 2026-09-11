@@ -62,7 +62,7 @@ failure during grading/demo can be traced from the container logs
 | Aspect | Details |
 |---|---|
 | **Pattern Used** | Orchestrator / Saga (choreographed via a dedicated orchestrating service) with a compensating action for the Score stage and hard dependency propagation for the rest of the flow |
-| **Justification** | Creating an offer requires coordinating three services (Posts for validation, Offers for persistence, Scores for the calculated utility value) behind one client request. The operation spans two data stores (Offers, Scores) with no distributed transaction available, and the project document requires that in every error case the databases are consistent when the flow ends. A saga-style approach is therefore used: the writes proceed sequentially (offer first, score second, because the score references the offer id), and when the score stage fails with an integration error the orchestrator runs the compensating action (delete the just created offer) so the system ends consistent. The remaining downstream calls (Users, Posts, Routes, Offers) are hard dependencies: when any of them is unreachable or errors unexpectedly, the request cannot be completed and the orchestrator answers 503, with no write left behind because the failure happens before or at the first write. |
+| **Justification** | Creating an offer requires coordinating three services (Posts for validation, Offers for persistence, Scores for the calculated utility value) behind one client request. The operation spans two data stores (Offers, Scores) with no distributed transaction available, and the project document requires that in every error case the databases are consistent when the flow ends. A saga-style approach is therefore used: the writes proceed sequentially (offer first, score second, because the score references the offer id), and when any stage after the offer write fails (the route fetch, the score persistence, or a missing route) the orchestrator runs the compensating action (delete the just created offer) so the system ends consistent. The remaining downstream calls (Users, Posts, Offers) are hard dependencies: when any of them is unreachable or errors unexpectedly, the request cannot be completed and the orchestrator answers 503, with no write left behind because the failure happens before or at the first write. |
 | **Favored Quality Attributes** | Consistency (a failed request never leaves an orphaned offer without its score); Simplicity for the client (one request, one response, and the documented 503 body when the flow cannot be completed); Modifiability (Offers and Scores can evolve independently behind their ports) |
 | **Disadvantaged Quality Attributes** | Availability of the primary use case (an offer can no longer be created when the Scores service is down, because the consistency requirement forces the rollback instead of a soft-fail); Latency (four sequential downstream calls plus a local score computation step add round-trip time); Complexity (the orchestrator must distinguish integration failures, which trigger the compensating action and a 503, from business rejections such as 404/412, which pass through unchanged and never compensate) |
 | **Components Involved** | `rf004_create_offer_app` (RF004App), `users_app`, `posts_app`, `routes_app`, `offers_app`, `scores_app` (ScoresApp), `ingress` (Ingress) |
@@ -86,27 +86,34 @@ its public API so compensation reuses the owning service's own contract
 
 Rules implemented in `rf004_create_offer_app`:
 
-1. **Only integration failures (503-class) after the first write trigger
-   compensation.** When the score stage fails because the Scores service
-   is unreachable or errors unexpectedly *and* the offer was created by
-   this same request, the orchestrator deletes that offer
-   (`DELETE /offers/{offerId}`) before answering the client with `503
+1. **The offer is the first write, so every failure after it triggers
+   compensation.** The flow order is: create the offer, then fetch the
+   route and calculate the score, then persist the score. When the route
+   fetch fails (unreachable Routes service, 503) or the score stage
+   fails (unreachable Scores service, 503), the orchestrator deletes the
+   offer created by this same request (`DELETE /offers/{offerId}`)
+   before answering the client with `503
    {"msg": "El servicio está temporalmente fuera de servicio."}`.
-2. **Failures before the first write leave nothing behind.** An
-   unreachable Users, Posts, or Routes service (and a missing route,
-   404) happens before the offer is created, so the 503/404 answer needs
-   no compensation. An unreachable Offers service means the write never
-   happened either.
-3. **Business rejections (400/404/412) are never compensated.** A missing
-   post, an own post, an expired post, or a malformed body passes through
-   untouched; no write was performed at that point, so nothing to roll
-   back.
-4. **A failed compensation is logged, not fatal.** If the Offers service
-   is also down, the compensating delete cannot be confirmed; the original
-   503 is still returned, and the event is logged at ERROR (see
-   Observability below). The residual orphan is *null-safe*: an offer
-   without a score simply reads as `null` in RF-005 until the data is
-   repaired, so it does not corrupt any query.
+2. **A missing route (business 404) is also compensated, and the 404
+   still reaches the client.** A post whose `routeId` does not exist
+   cannot be scored, so the offer created by the request is deleted
+   before the documented 404 (empty body) is answered: the business
+   contract is preserved and no orphaned offer remains.
+3. **Failures before the first write leave nothing behind.** An
+   unreachable Users or Posts service happens before the offer is
+   created, so the 503 answer needs no compensation. An unreachable
+   Offers service means the write never happened either.
+4. **Business rejections in the gates (400/404/412) are never
+   compensated.** A missing post, an own post, an expired post, or a
+   malformed body passes through untouched; no write was performed at
+   that point, so nothing to roll back.
+5. **A failed compensation is logged, not fatal.** If the Offers service
+   is also down, the compensating delete cannot be confirmed; the
+   original error is still returned (503, or 404 for a missing route),
+   and the event is logged at ERROR (see Observability below). The
+   residual orphan is *null-safe*: an offer without a score simply reads
+   as `null` in RF-005 until the data is repaired, so it does not
+   corrupt any query.
 
 **Distinguishing the error classes** happens in the HTTP clients
 (`src/adapters/http/`): network errors, timeouts, and unexpected statuses
