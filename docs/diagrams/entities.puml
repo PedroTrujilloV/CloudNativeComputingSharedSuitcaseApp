@@ -60,8 +60,19 @@ entity "offers" as OffersEntity {
   createdAt : datetime
 }
 
+' Score (utilidad)
+entity "scores" as ScoresEntity {
+  * id : string <<uuid>>
+  --
+  offerId : string <<unique, indexed>>
+  value : float
+  createdAt : datetime
+  updatedAt : datetime
+}
+
 PostsEntity "1" --> "1" UsersEntity
 PostsEntity "1" --> "1" RoutesEntity
 OffersEntity "*" --> "1" PostsEntity
+ScoresEntity "*" --> "1" OffersEntity
 
 @enduml

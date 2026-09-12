@@ -7,19 +7,24 @@ This project implements a brokerage platform (broker) for collaborative package 
 * **Three orchestrator services** (`rf003_create_post_app`, `rf004_create_offer_app`, and `rf005_query_post_app`) that expose the client-facing endpoints for requirements RF-003, RF-004, and RF-005. Each orchestrator coordinates calls to the existing microservices while handling consistency (for example, RF-003 uses saga compensation to avoid orphaned routes when a downstream service fails mid-flow) and error propagation (integration failures return 503; business rejections pass through 412 unchanged).
 * **A Kubernetes Ingress** that serves as the single public entry point for all eight services, routing by path prefix (`/users`, `/posts`, `/offers`, `/routes`, `/rf003`, `/rf004`, `/rf005`).
 * **AWS Secrets Manager integration** (via Kubernetes External Secrets Operator) for database credentials in production deployments. Local development uses K8s Secrets with placeholder values stored in `k8s_entrega2/00-secrets.yml`.
+* **AWS Secrets Manager integration** (via Kubernetes External Secrets Operator) for database credentials in production deployments. Local development uses K8s Secrets with placeholder values stored in `k8s_entrega2/00-secrets.yml`.
 * **A shared PostgreSQL instance** in the cloud deployment (single RDS with per-app schema and role isolation), provisioned through Terraform stacks and deployed via the `ci_entrega2_deploy.yml` pipeline, which builds and pushes the images to ECR.
 
 ## Page
 
-- [Shared Suitcase App](https://miniature-disco-ee8nm6p.pages.github.io/)
+[Project Delivery 2 Github web page]("https://miniature-disco-ee8nm6p.pages.github.io/")
+
+The published documentation site is the GitHub Pages site for this repository (see `config.yaml` `docs` for the URL).
 
 By using this project, you will find:
 
 * Five independent REST microservices (users, routes, posts, offers, scores), each exclusively responsible for its own data.
 * Three orchestrator services (RF-003, RF-004, RF-005) that coordinate the microservices behind a single client-facing endpoint per requirement. Each orchestrator handles consistency (for example, RF-003 uses saga compensation to avoid orphaned routes when a downstream service fails mid-flow) and error propagation (integration failures return 503; business rejections pass through 412 unchanged).
 * A shared PostgreSQL instance for all applications, with per-app database and role isolation enforced at the PostgreSQL level.
+* A shared PostgreSQL instance for all applications, with per-app database and role isolation enforced at the PostgreSQL level.
 * Authentication based on random tokens (not JWT) for user management.
 * Technical documentation as code, with architecture views modeled in PlantUML and published through GitHub Pages.
+* GitHub Actions pipelines to validate deployment, database configuration, API contracts, and unit test coverage.
 * GitHub Actions pipelines to validate deployment, database configuration, API contracts, and unit test coverage.
 
 ## Table of Contents
@@ -29,8 +34,21 @@ By using this project, you will find:
   - [Table of Contents](#table-of-contents)
   - [Team](#team)
   - [Architectural Views](#architectural-views)
+    - [Information View](#information-view)
+    - [Functional View](#functional-view)
+    - [Deployment View](#deployment-view)
+    - [Development View](#development-view)
     - [Consistency patterns for orchestrators](#consistency-patterns-for-orchestrators)
-    - [Requirements](#requirements)
+  - [Requirements](#requirements)
+    - [Requirement RF-003](#requirement-rf-003)
+      - [RF-003 Sequence View](#rf-003-sequence-view)
+      - [RF-003 Solution Pattern](#rf-003-solution-pattern)
+    - [Requirement RF-004](#requirement-rf-004)
+      - [RF-004 Sequence View](#rf-004-sequence-view)
+      - [RF-004 Solution Pattern](#rf-004-solution-pattern)
+    - [Requirement RF-005](#requirement-rf-005)
+      - [RF-005 Sequence View](#rf-005-sequence-view)
+      - [RF-005 Solution Pattern](#rf-005-solution-pattern)
   - [Development and Deployment Technologies](#development-and-deployment-technologies)
     - [Postman](#postman)
     - [Git](#git)
@@ -44,33 +62,34 @@ By using this project, you will find:
   - [Application Execution](#application-execution)
     - [1. Install Dependencies](#1-install-dependencies)
     - [2. Run Each Application Locally](#2-run-each-application-locally)
-  - [Run with Docker](#run-with-docker)
-  - [Run with Minikube](#run-with-minikube)
-    - [Automated local deployment and verification (recommended)](#automated-local-deployment-and-verification-recommended)
-    - [Local deployment (Ingress-required)](#local-deployment-ingress-required)
-    - [Testing saga consistency with Postman + kubectl](#testing-saga-consistency-with-postman--kubectl)
-    - [Local deployment with Ingress (manual steps, reference)](#local-deployment-with-ingress-manual-steps-reference)
-      - [Step 1 - Remove old images and containers](#step-1---remove-old-images-and-containers)
-      - [Step 2 - Start a fresh Minikube cluster with the Ingress addon enabled](#step-2---start-a-fresh-minikube-cluster-with-the-ingress-addon-enabled)
-      - [Step 3 - Build all Docker images into Minikube](#step-3---build-all-docker-images-into-minikube)
-      - [Step 4 - Apply Kubernetes manifests in order](#step-4---apply-kubernetes-manifests-in-order)
-      - [Step 5 - Verify pods and services are running](#step-5---verify-pods-and-services-are-running)
-      - [Step 6 - Access services through the Ingress](#step-6---access-services-through-the-ingress)
-    - [Troubleshooting local deployment](#troubleshooting-local-deployment)
-    - [Ingress configurations (two environments)](#ingress-configurations-two-environments)
-      - [Local Minikube - NGINX Ingress](#local-minikube---nginx-ingress)
-      - [AWS EKS production - ALB Ingress](#aws-eks-production---alb-ingress)
-    - [AWS production deployment notes](#aws-production-deployment-notes)
+  - [Deployment](#deployment)
+    - [Run with Docker](#run-with-docker)
+    - [Run with Minikube](#run-with-minikube)
+      - [Automated local deployment and verification (recommended)](#automated-local-deployment-and-verification-recommended)
+      - [Local deployment (Ingress-required)](#local-deployment-ingress-required)
+      - [Testing saga consistency with Postman + kubectl](#testing-saga-consistency-with-postman--kubectl)
+      - [Local deployment with Ingress (manual steps, reference)](#local-deployment-with-ingress-manual-steps-reference)
+        - [Step 1 - Remove old images and containers](#step-1---remove-old-images-and-containers)
+        - [Step 2 - Start a fresh Minikube cluster with the Ingress addon enabled](#step-2---start-a-fresh-minikube-cluster-with-the-ingress-addon-enabled)
+        - [Step 3 - Build all Docker images into Minikube](#step-3---build-all-docker-images-into-minikube)
+        - [Step 4 - Apply Kubernetes manifests in order](#step-4---apply-kubernetes-manifests-in-order)
+        - [Step 5 - Verify pods and services are running](#step-5---verify-pods-and-services-are-running)
+        - [Step 6 - Access services through the Ingress](#step-6---access-services-through-the-ingress)
+      - [Troubleshooting local deployment](#troubleshooting-local-deployment)
+      - [Ingress configurations (two environments)](#ingress-configurations-two-environments)
+        - [Local Minikube - NGINX Ingress](#local-minikube---nginx-ingress)
+        - [AWS EKS production - NGINX Ingress (ALB not available)](#aws-eks-production---nginx-ingress-alb-not-available)
+    - [Deployment (AWS)](#deployment-aws)
   - [Running PlantUML Generator](#running-plantuml-generator)
-  - [Technical Documentation](#technical-documentation)
-  - [Terraform Cloud Infrastructure](#terraform-cloud-infrastructure)
+  - [Terraform](#terraform)
+    - [Terraform Deployment Guide](#terraform-deployment-guide)
     - [Stack READMEs](#stack-readmes)
   - [Kubernetes Resources](#kubernetes-resources)
     - [Entrega 2 manifests (`k8s_entrega2/`)](#entrega-2-manifests-k8s_entrega2)
-    - [Legacy Entrega 1 manifests (`k8s/entrega1_k8s/`)](#legacy-entrega-1-manifests-k8sentrega1_k8s)
+    - [Legacy Entrega 1 manifests (`k8s/`)](#legacy-entrega-1-manifests-k8s)
     - [Secrets Management](#secrets-management)
-      - [Local Minikube (Entrega 1 model) per-app databases](#local-minikube-entrega-1-model-per-app-databases)
-      - [AWS Production (Entrega 2 model) shared RDS instance](#aws-production-entrega-2-model-shared-rds-instance)
+      - [Local Minikube (shared database instance)](#local-minikube-shared-database-instance)
+      - [AWS Production (shared RDS instance)](#aws-production-shared-rds-instance)
       - [Production notes](#production-notes)
   - [Contributing](#contributing)
   - [Team Rules](#team-rules)
@@ -83,11 +102,31 @@ By using this project, you will find:
 
 ## Architectural Views
 
-System architecture documentation can be found at:
+### Information View
 
-- [Information View](./information-view.md)
-- [Functional View](./functional-view.md)
-- [Deployment View](./deployment-view.md)
+The [Information View](./information-view.md) documents the domain entities
+(User, Route, Post, Offer, and Score) with their attributes and data types,
+plus the entity relationship diagram.
+
+### Functional View
+
+The [Functional View](./functional-view.md) presents the runtime components
+(the five microservices, the three orchestrators, the shared database, and
+the Ingress) with their responsibilities, design considerations, and
+integrations.
+
+### Deployment View
+
+The [Deployment View](./deployment-view.md) describes how the components are
+deployed in both environments: local Minikube and AWS EKS, including the
+network model, the Ingress deployment details, and the Terraform
+infrastructure deployment.
+
+### Development View
+
+The [Development View](./development-view.md) documents the project structure
+(app folders, k8s folders, docs folder, `config.yaml`), the API endpoints,
+the data models, the testing strategy, and the pipelines.
 
 ### Consistency patterns for orchestrators
 
@@ -97,16 +136,43 @@ Each orchestrator has a documented consistency strategy (see [Solution Patterns]
 * **RF-004** writes a score after creating an offer (documented consistency rules for that requirement).
 * **RF-005** reads data from multiple services and handles null values safely (for example, missing scores do not cause failures).
 
-### Requirements
-  * Requirement RF-003
-    * [Solution pattern](./solution-patterns.md#rf-003). 
-    * [Sequence View](./rf003-sequence-view.md). 
-  * Requirement RF-004
-    * [Solution pattern](./solution-patterns.md#rf-004). 
-    * [Sequence View](./rf004-sequence-view.md). 
-  * Requirement RF-005
-    * [Solution pattern](./solution-patterns.md#rf-005). 
-    * [Sequence View](./rf005-sequence-view.md). 
+## Requirements
+
+### Requirement RF-003
+
+Create a post (with route find or create) as a single client facing request.
+
+#### RF-003 Sequence View
+
+[RF-003 Sequence View](./rf003-sequence-view.md)
+
+#### RF-003 Solution Pattern
+
+[RF-003 Solution Pattern](./solution-patterns.md#rf-003)
+
+### Requirement RF-004
+
+Create an offer and persist its computed score as a single client facing request.
+
+#### RF-004 Sequence View
+
+[RF-004 Sequence View](./rf004-sequence-view.md)
+
+#### RF-004 Solution Pattern
+
+[RF-004 Solution Pattern](./solution-patterns.md#rf-004)
+
+### Requirement RF-005
+
+Query a post with its route and its offers sorted by score (null safe) as a single client facing request.
+
+#### RF-005 Sequence View
+
+[RF-005 Sequence View](./rf005-sequence-view.md)
+
+#### RF-005 Solution Pattern
+
+[RF-005 Solution Pattern](./solution-patterns.md#rf-005)
 
 ## Development and Deployment Technologies
 
@@ -126,8 +192,7 @@ In this project, Postman is used to:
 The collections live in `scripts/entrega2/` (three functional collections,
 `evaluate_rf00X.json`, and three consistency collections,
 `evaluate_rf00X_consistency.json`). They can be imported in the Postman UI or
-executed headless with [Newman](https://github.com/postmanlabs/newman)
-(`npm i -g newman`), which is what `scripts/local-verify.sh` and the CI
+executed headless with Newman (`npm i -g newman`), which is what `scripts/local-verify.sh` and the CI
 workflows use including the saga-consistency runs that scale a deployment
 to zero replicas between requests (see
 [Testing saga consistency with Postman + kubectl](#testing-saga-consistency-with-postman--kubectl)).
@@ -261,7 +326,9 @@ In this project, Minikube is used to deploy and validate the complete system loc
 
 * Eight services (four legacy microservices plus scores_app, rf003_create_post_app, rf004_create_offer_app, and rf005_query_post_app).
 * One shared PostgreSQL instance with per-app database and role isolation (five databases: users_db, posts_db, offers_db, routes_db, scores_db).
+* One shared PostgreSQL instance with per-app database and role isolation (five databases: users_db, posts_db, offers_db, routes_db, scores_db).
 * Kubernetes Services.
+* Application-to-database communication through PostgreSQL-level role grants.
 * Application-to-database communication through PostgreSQL-level role grants.
 
 Start the cluster with:
@@ -290,6 +357,7 @@ In this project, `kubectl` is used to:
 For example:
 
 ```bash
+kubectl apply -f k8s_entrega2/
 kubectl apply -f k8s_entrega2/
 kubectl get pods
 kubectl get services
@@ -320,11 +388,13 @@ Each application runs independently. Refer to the `README.md` in each folder for
 - [Posts App](apps/posts_app.md)
 - [Offers App](apps/offers_app.md)
 - [Scores App](apps/scores_app.md)
-- [RF-003 Orchestation App](apps/rf003_create_post_app.md)
-- [RF-004 Orchestation App](apps/rf004_create_offer_app.md)
-- [RF-005 Orchestation App](apps/rf005_query_post_app.md)
+- [RF-003 Orchestration App](apps/rf003_create_post_app.md)
+- [RF-004 Orchestration App](apps/rf004_create_offer_app.md)
+- [RF-005 Orchestration App](apps/rf005_query_post_app.md)
 
-## Run with Docker
+## Deployment
+
+### Run with Docker
 
 Each application has its own `Dockerfile`. Build and run each application independently:
 
@@ -341,9 +411,9 @@ cd users_app
 docker build -t users-app:v0.0.0 .
 ```
 
-## Run with Minikube
+### Run with Minikube
 
-### Automated local deployment and verification (recommended)
+#### Automated local deployment and verification (recommended)
 
 Two scripts in `scripts/` automate the full local sequence. They are also
 used by the `ci_local_manual_test.yml` workflow, so running them locally is
@@ -369,13 +439,12 @@ Sizes can be tuned with environment variables, for example
 `MINIKUBE_MEMORY=6g bash scripts/local-deploy.sh` on machines with a smaller
 Docker Desktop memory allocation.
 
-The legacy Entrega 1 deployment (`k8s/entrega1_k8s/`) is not deployed by
-these scripts: it is evaluated separately by the
-`ci_entrega1_evaluador_k8s.yml` pipeline on GitHub, and the two deployments
-define the same resource names with different images, so they must not run
-in the same cluster at the same time.
+The legacy Entrega 1 deployment (`k8s/`) is not deployed by these scripts:
+it is evaluated separately by the `ci_entrega1_evaluador_k8s.yml` pipeline
+on GitHub, and the two deployments define the same resource names with
+different images, so they must not run in the same cluster at the same time.
 
-### Local deployment (Ingress-required)
+#### Local deployment (Ingress-required)
 
 All app Services are **ClusterIP**, and they are reachable only from inside
 the cluster. The single external entry point is the NGINX ingress controller
@@ -390,17 +459,26 @@ eval $(minikube docker-env)
 # Build all images into Minikube
 # (see scripts/local-deploy.sh for the full build sequence)
 
-# Deploy all components (Entrega 2 manifests)
-kubectl apply -f k8s_entrega2/
+# Deploy all components (Entrega 2 manifests, in apply order)
+kubectl apply -f k8s_entrega2/local-only/00-secrets.yml
+kubectl apply -f k8s_entrega2/local-only/15-shared-db.yml
+kubectl apply -f k8s_entrega2/20-users-app.yml
+kubectl apply -f k8s_entrega2/21-posts-app.yml
+kubectl apply -f k8s_entrega2/22-offers-app.yml
+kubectl apply -f k8s_entrega2/23-routes-app.yml
+kubectl apply -f k8s_entrega2/24-scores-app.yml
+kubectl apply -f k8s_entrega2/25-rf003-create-post-app.yml
+kubectl apply -f k8s_entrega2/26-rf004-create-offer-app.yml
+kubectl apply -f k8s_entrega2/27-rf005-query-post-app.yml
+kubectl apply -f k8s_entrega2/zz-ingress.yml
 
-# Check the status of pods, services, network policies and Ingress
+# Check the status of pods, services and Ingress
 kubectl get pods
 kubectl get services
-kubectl get networkpolicies
 kubectl get ingress
 ```
 
-### Testing saga consistency with Postman + kubectl
+#### Testing saga consistency with Postman + kubectl
 
 The orchestrators (RF-003, RF-004, RF-005) are designed so that, when one of
 their downstream microservices is unavailable mid-flow, they propagate the
@@ -474,13 +552,13 @@ Notes:
   (`kubectl wait ... ready`) guarantees the app is back before the
   verification runs.
 
-### Local deployment with Ingress (manual steps, reference)
+#### Local deployment with Ingress (manual steps, reference)
 
 The steps below are the manual equivalent of `scripts/local-deploy.sh` and
 `scripts/local-verify.sh`. Use the scripts for day-to-day work; keep these
 steps here to understand (and debug) what the scripts do.
 
-#### Step 1 - Remove old images and containers
+##### Step 1 - Remove old images and containers
 
 ```bash
 # Stop and remove any running Minikube cluster
@@ -493,52 +571,69 @@ docker rmi $(docker images -q) 2>/dev/null
 docker system prune -f
 ```
 
-#### Step 2 - Start a fresh Minikube cluster with the Ingress addon enabled
+##### Step 2 - Start a fresh Minikube cluster with the Ingress addon enabled
 
 ```bash
 minikube start --cpus=4 --memory=7g
+minikube start --cpus=4 --memory=7g
 minikube addons enable ingress
+eval $(minikube docker-env)
 eval $(minikube docker-env)
 ```
 
-#### Step 3 - Build all Docker images into Minikube
+##### Step 3 - Build all Docker images into Minikube
 
+With `eval $(minikube docker-env)` active, `docker build` writes directly
+into the Minikube container runtime:
 With `eval $(minikube docker-env)` active, `docker build` writes directly
 into the Minikube container runtime:
 
 ```bash
+# Remember to set ACCOUNT_ID and AWS_REGION. For local development can be anything. 
+ACCOUNT_ID="1234567890"
+AWS_REGION="us-east-1"
+ECR="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/"
+
 # Legacy apps (Entrega 1, hyphenated image names for the k8s_entrega2/ deployment)
-docker build -t users-app:v0.0.0 users_app
-docker build -t posts-app:v0.0.0 posts_app
-docker build -t offers-app:v0.0.0 offers_app
-docker build -t routes-app:v0.0.0 routes_app
+docker build -t "${ECR}users-app:v0.0.0" users_app
+docker build -t "${ECR}posts-app:v0.0.0" posts_app
+docker build -t "${ECR}offers-app:v0.0.0" offers_app
+docker build -t "${ECR}routes-app:v0.0.0" routes_app
 
-# Entrega 2 apps
-docker build -t scores-app:v0.0.0 scores_app
-docker build -t rf003-create-post-app:v0.0.0 rf003_create_post_app
+# Entrega 2 apps (each one is built from its own folder, the same way
+# scripts/local-deploy.sh does it)
 
-# rf004/rf005 live in separate branches: build the ping-only stub image
-docker build -t rf004-create-offer-app:v0.0.0 scripts/stubs
-docker build -t rf005-query-post-app:v0.0.0 scripts/stubs
+docker build -t "${ECR}scores-app:v0.0.0" scores_app
+docker build -t "${ECR}rf003-create-post-app:v0.0.0" rf003_create_post_app
+docker build -t "${ECR}rf004-create-offer-app:v0.0.0" rf004_create_offer_app
+docker build -t "${ECR}rf005-query-post-app:v0.0.0" rf005_query_post_app
 ```
 
-#### Step 4 - Apply Kubernetes manifests in order
-
-The file names encode the apply order (00 secrets, 10 network policies,
-20 apps, zz ingress last), which is the same alphabetical order the AWS
-pipeline uses:
+##### Step 4 - Apply Kubernetes manifests in order
 
 ```bash
-# 1. Secrets first (required by Deployments)
-kubectl apply -f k8s_entrega2/00-secrets.yml
+# 0. Modify manually the variables placeholders for each image for each app k8s manifest .yml file
+# for example:
+# sed -i '' "s|\${ACCOUNT_ID}|123456789|g" "k8s_entrega2/22-offers-app.yml"
+# sed -i '' "s|\${AWS_REGION}|us-east-1|g" "k8s_entrega2/22-offers-app.yml"
+sed -i '' "s|\${ACCOUNT_ID}|${ACCOUNT_ID}|g" "${manifest}"
+sed -i '' "s|\${AWS_REGION}|${AWS_REGION}|g" "${manifest}"
 
-# 2. Network policies for database isolation
-kubectl apply -f k8s_entrega2/10-users-network-policy.yml
-kubectl apply -f k8s_entrega2/11-posts-network-policy.yml
-kubectl apply -f k8s_entrega2/12-offers-network-policy.yml
-kubectl apply -f k8s_entrega2/13-routes-network-policy.yml
-kubectl apply -f k8s_entrega2/14-scores-network-policy.yml
+# 1. Local secrets first (required by Deployments)
+kubectl apply -f k8s_entrega2/local-only/00-secrets.yml
 
+# 2. Shared database instance (local Minikube only)
+kubectl apply -f k8s_entrega2/local-only/15-shared-db.yml
+
+# 3. All app Deployments and Services
+kubectl apply -f k8s_entrega2/20-users-app.yml
+kubectl apply -f k8s_entrega2/21-posts-app.yml
+kubectl apply -f k8s_entrega2/22-offers-app.yml
+kubectl apply -f k8s_entrega2/23-routes-app.yml
+kubectl apply -f k8s_entrega2/24-scores-app.yml
+kubectl apply -f k8s_entrega2/25-rf003-create-post-app.yml
+kubectl apply -f k8s_entrega2/26-rf004-create-offer-app.yml
+kubectl apply -f k8s_entrega2/27-rf005-query-post-app.yml
 # 3. All app Deployments and Services
 kubectl apply -f k8s_entrega2/20-users-app.yml
 kubectl apply -f k8s_entrega2/21-posts-app.yml
@@ -551,9 +646,16 @@ kubectl apply -f k8s_entrega2/27-rf005-query-post-app.yml
 
 # 4. Ingress (applied last, routes to all above services)
 kubectl apply -f k8s_entrega2/zz-ingress.yml
+kubectl apply -f k8s_entrega2/zz-ingress.yml
 ```
 
-#### Step 5 - Verify pods and services are running
+> The file names encode the apply order (00 secrets, 15 shared db, 20 apps,
+> zz ingress last), which is the same alphabetical order the AWS pipeline
+> uses. There are no NetworkPolicy files in `k8s_entrega2/`: data isolation
+> is enforced at the PostgreSQL level (per app databases and roles) in both
+> environments.
+
+##### Step 5 - Verify pods and services are running
 
 ```bash
 kubectl get pods -o wide
@@ -561,18 +663,16 @@ kubectl get services
 kubectl get ingress
 ```
 
-All pods should show `STATUS: Running`. The Ingress should show an ADDRESS (provided by the minikube ingress addon).
+All pods should show `STATUS: Running`. The Ingress should show an ADDRESS (provided by the minikube ingress addon); with `minikube tunnel` running, the entry point is `http://localhost:80`.
 
-#### Step 6 - Access services through the Ingress
+##### Step 6 - Access services through the Ingress
 
-The NGINX ingress controller exposes a NodePort on the Minikube node;
-all external traffic enters through this single port and is routed by path:
+Start `minikube tunnel` in a separate terminal (the same procedure
+`scripts/local-verify.sh` uses); with the tunnel running, all external
+traffic enters through `http://localhost:80` and is routed by path:
 
 ```bash
-NODE_IP=$(minikube ip)
-INGRESS_PORT=$(kubectl get service ingress-nginx-controller \
-  -n ingress-nginx -o jsonpath='{.spec.ports[0].nodePort}')
-INGRESS="http://${NODE_IP}:${INGRESS_PORT}"
+INGRESS="http://localhost:80"
 
 # Legacy apps (Entrega 1) - routed to /users/*, /posts/*, /offers/*, /routes/*
 curl ${INGRESS}/users/ping
@@ -584,26 +684,32 @@ curl ${INGRESS}/routes/ping
 curl ${INGRESS}/rf003/ping
 curl ${INGRESS}/rf004/ping
 curl ${INGRESS}/rf005/ping
+# Orchestrator apps (Entrega 2) - routed to /rf003/*, /rf004/*, /rf005/*
+curl ${INGRESS}/rf003/ping
+curl ${INGRESS}/rf004/ping
+curl ${INGRESS}/rf005/ping
 ```
 
 All endpoints should return a `pong` response. The same checks, plus a
 functional smoke test (create user, authenticate, create a post through
 RF-003, read the post back), are automated in `scripts/local-verify.sh`.
 
-### Troubleshooting local deployment
+#### Troubleshooting local deployment
 
 * Pods stuck in `Pending` - check with `kubectl describe pod <pod-name>` for resource constraints or scheduling errors.
 * Pods in `CrashLoopBackOff` - check logs: `kubectl logs <pod-name>`. Verify image is correctly tagged and the app code exists.
 * Ingress shows `<pending>` address - ensure `minikube addons enable ingress` was run, then reapply `kubectl apply -f k8s_entrega2/zz-ingress.yml`.
-* No endpoints reachable through Ingress - confirm the ingress addon is enabled (`minikube addons enable ingress`) and check `kubectl get service ingress-nginx-controller -n ingress-nginx` for the controller's NodePort (dynamic, not hardcoded).
+* No endpoints reachable through Ingress - confirm the ingress addon is enabled (`minikube addons enable ingress`), that `minikube tunnel` is running (the entry point is `http://localhost:80`), and check `kubectl get service ingress-nginx-controller -n ingress-nginx` for the controller's status.
 
-### Ingress configurations (two environments)
+#### Ingress configurations (two environments)
 
 The single Ingress resource is defined in `k8s_entrega2/zz-ingress.yml`
-(name: `microservices-ingress`). It is the same resource in both
-environments; only the controller class and annotations differ.
+(name: `microservices-ingress`). The same resource is applied unchanged in
+both environments: the course project required an AWS ALB for the cloud
+deployment, but the AWS Academy academic accounts do not allow ALB, so the
+NGINX ingress controller is used everywhere.
 
-#### Local Minikube - NGINX Ingress
+##### Local Minikube - NGINX Ingress
 
 Use this configuration for local development. The manifest is pre-configured with:
 
@@ -613,145 +719,194 @@ Use this configuration for local development. The manifest is pre-configured wit
 
 Steps:
 1. `minikube addons enable ingress`
-2. `kubectl apply -f k8s_entrega2/00-secrets.yml -f k8s_entrega2/zz-ingress.yml`
-3. `curl ${INGRESS}/users/ping` (replace with dynamic ingress URL from Step 6)
+2. Apply the local secrets, the shared database, the app manifests, and the
+   ingress (in that order, see the
+   [Local deployment (Ingress-required)](#local-deployment-ingress-required)
+   section)
+3. Start `minikube tunnel` in a separate terminal, then
+   `curl http://localhost:80/users/ping`
 
-#### AWS EKS production - ALB Ingress
+##### AWS EKS production - NGINX Ingress (ALB not available)
 
-Use this configuration for cloud deployment. Steps to switch:
+The course project required an AWS ALB for the cloud deployment, but the
+AWS Academy academic accounts do not allow ALB, so this project uses the
+NGINX ingress controller in both environments. The same
+`k8s_entrega2/zz-ingress.yml` resource (`ingressClassName: nginx`) is applied
+unchanged on EKS; the NGINX controller runs as a Deployment inside the
+cluster and its Service is exposed as a LoadBalancer (AWS provisions the
+elastic load balancer for the Service), which serves as the single entry
+point. See the header comment in `k8s_entrega2/zz-ingress.yml` and the
+[Deployment View](./deployment-view.md) for the rationale and evidence.
 
-1. Install the **AWS Load Balancer Controller** (replaces the minikube ingress addon).
-2. Change `ingressClassName: nginx` to `ingressClassName: alb` in `k8s_entrega2/zz-ingress.yml`.
-3. Remove the `kubernetes.io/ingress.class` annotation and keep only ALB annotations:
-   - `alb.ingress.kubernetes.io/scheme: internet-facing`
-   - `alb.ingress.kubernetes.io/target-type: ip`
-   - `alb.ingress.kubernetes.io/listen-ports: '[{\"HTTPS\":443}]'`
-   - `alb.ingress.kubernetes.io/ip-address-type: ipv4`
-4. Install the **External Secrets Operator (ESO)** to populate K8s Secrets from **AWS Secrets Manager** at runtime. Secret objects are created by ESO; you do not need to manage base64 values manually.
-5. Deploy with `kubectl apply -f k8s_entrega2/`. The ALB provisioned by the controller serves as the single entry point.
+Steps for cloud deployment:
 
-### AWS production deployment notes
+1. Deploy the NGINX ingress controller into the EKS cluster (the same addon
+   used locally, packaged as a standard Deployment).
+2. Apply `k8s_entrega2/zz-ingress.yml` unchanged (`ingressClassName: nginx`).
+3. Install the **External Secrets Operator (ESO)** to populate K8s Secrets from **AWS Secrets Manager** at runtime. Secret objects are created by ESO; you do not need to manage base64 values manually.
+4. Deploy with `kubectl apply -f k8s_entrega2/`. The LoadBalancer in front of the NGINX controller serves as the single entry point.
 
-For the full Terraform and CI pipeline workflow (ECR image build, EKS deployment, infrastructure provisioning), use the `ci_entrega2_deploy.yml` pipeline with a manual workflow dispatch. Refer to the pipeline file at `.github/workflows/ci_entrega2_deploy.yml`.
+### Deployment (AWS)
+
+For the full Terraform and CI pipeline workflow (ECR image build, EKS
+deployment, infrastructure provisioning), use the `ci_entrega2_deploy.yml`
+pipeline with a manual workflow dispatch. Refer to the pipeline file at
+`.github/workflows/ci_entrega2_deploy.yml`. The pipeline reads `config.yaml`
+and performs the Terraform apply (in `tf_stacks` order), the Docker image
+build and push to ECR, and the `k8s_entrega2/` manifest apply in a single run.
+
+The database is a single shared RDS PostgreSQL instance with per app schema
+and role isolation (provisioned by the `1_database` Terraform stack), and the
+K8s Secrets are populated from AWS Secrets Manager by the External Secrets
+Operator (ESO). The Ingress uses the NGINX controller in AWS as well, because
+the AWS Academy academic accounts do not allow an ALB (see the ingress
+section above and the [Deployment View](./deployment-view.md)).
+
+For the stack by stack infrastructure guide, see the [Terraform Deployment
+Guide](./terraform-deployment.md).
 
 ## Running PlantUML Generator
 
-run from the repo root dir:
-```
+Run from the repo root dir:
+
+```bash
 cd plantuml-generator && docker build -t plantuml/plantuml:latest .
 cd ../
 docker run --rm -e PLANTUML_LIMIT_SIZE=8192 -v "$(pwd)/docs/diagrams:/workspace" -w /workspace plantuml/plantuml:latest "**.puml"
 ```
 
-## Technical Documentation
+## Terraform
 
-Development documentation can be found at:
+The project uses Terraform to provision the cloud infrastructure (S3 state
+bucket, RDS PostgreSQL, ECR repositories, EKS cluster) on AWS Academy. The
+active stacks, in `config.yaml` `tf_stacks` deploy order, are `1_database`,
+`2_registry`, and `eks`; `0_storage` is commented out (see the
+[Terraform Deployment Guide](./terraform-deployment.md) for the storage
+bootstrap prerequisite).
 
-- [Development View](./development-view.md)
-- [Information View](./information-view.md)
-- [Functional View](./functional-view.md)
-- [Deployment View](./deployment-view.md)
-- [Solution Patterns (RF-003, RF-004, RF-005)](./solution-patterns.md)
+### Terraform Deployment Guide
 
-## Terraform Cloud Infrastructure
-
-The project uses Terraform to provision cloud infrastructure (EKS, RDS PostgreSQL, ECR) on AWS Academy. The stacks are deployed in order: network, data, compute.
+The [Terraform Deployment Guide](./terraform-deployment.md) documents the
+stack model, the deployment and destroy order, the local deployment steps,
+and the verification commands.
 
 ### Stack READMEs
 
-- [Terraform Deployment Guide](./terraform-deployment.md)
-- [Network Stack README](./terraform/network-README.md)
-- [Data Stack README](./terraform/data-README.md)
-- [Compute Stack README](./terraform/compute-README.md)
+Each stack folder under `terraform/stacks/` contains its own README with the
+components, variables, outputs, and cross stack relationships:
 
-For local deployment steps, see the Terraform Deployment Guide above. For CI/CD deployment details, refer to the `ci_entrega2_deploy.yml` pipeline in `.github/workflows/`.
+- [0_storage Stack README](../terraform/stacks/0_storage/README.md)
+- [1_database Stack README](../terraform/stacks/1_database/README.md)
+- [2_registry Stack README](../terraform/stacks/2_registry/README.md)
+- [eks Stack README](../terraform/stacks/eks/README.md)
+
+For CI/CD deployment details, refer to the `ci_entrega2_deploy.yml` pipeline
+in `.github/workflows/`.
+
 ## Kubernetes Resources
 
 The Kubernetes manifests are organized in two folders, one per delivery.
 They must not be applied together: both deployments define resources with
-the same names (for example `users-app`, `users-app-service`, `users-db`)
-but with different images.
+the same names (for example `users-app`, `users-app-service`) but with
+different images.
 
 ### Entrega 2 manifests (`k8s_entrega2/`)
 
 Applied by the `ci_entrega2_deploy.yml` pipeline (AWS/EKS) and by
 `scripts/local-deploy.sh` (local Minikube). File names encode the apply
-order, which matches the alphabetical order the pipeline uses:
+order, which matches the alphabetical order the pipeline uses. All
+application Deployments and Services are ClusterIP; the only external entry
+point is the Ingress.
 
 | File | Components | Purpose |
 |---|---|---|
-| `k8s_entrega2/00-secrets.yml` | 5 K8s Secret objects (local) | DB credentials for **local minikube**; each app has its own separate Postgres pod in local mode |
-| `k8s_entrega2/00-aws-secrets-shared-db.yml` | 6 K8s Secrets (AWS) | Shared RDS connection (`shared-db-secrets`) + per-app schema/role credentials for **AWS production** where all apps share one database instance |
-| `k8s_entrega2/10-users-network-policy.yml` | NetworkPolicy (users-network) | users-app can only talk to users-db |
-| `k8s_entrega2/11-posts-network-policy.yml` | NetworkPolicy (posts-network) | posts-app can only talk to posts-db |
-| `k8s_entrega2/12-offers-network-policy.yml` | NetworkPolicy (offers-network) | offers-app can only talk to offers-db |
-| `k8s_entrega2/13-routes-network-policy.yml` | NetworkPolicy (routes-network) | routes-app can only talk to routes-db |
-| `k8s_entrega2/14-scores-network-policy.yml` | NetworkPolicy (scores-network) | scores-app can only talk to scores-db |
-| `k8s_entrega2/20-users-app.yml` | Deployment + Service (users-app), Deployment + Service (users-db) | users service with PostgreSQL, ClusterIP |
-| `k8s_entrega2/21-posts-app.yml` | Deployment + Service (posts-app), Deployment + Service (posts-db) | posts service with PostgreSQL, ClusterIP |
-| `k8s_entrega2/22-offers-app.yml` | Deployment + Service (offers-app), Deployment + Service (offers-db) | offers service with PostgreSQL, ClusterIP |
-| `k8s_entrega2/23-routes-app.yml` | Deployment + Service (routes-app), Deployment + Service (routes-db) | routes service with PostgreSQL, ClusterIP |
-| `k8s_entrega2/24-scores-app.yml` | Deployment + Service (scores-app), Deployment + Service (scores-db) | scores service with PostgreSQL, ClusterIP |
+| `k8s_entrega2/local-only/00-secrets.yml` | 5 K8s Secret objects | DB credentials for local Minikube, pointing at the shared Postgres instance (`shared-db-service`) |
+| `k8s_entrega2/local-only/15-shared-db.yml` | Deployment + Service (shared-db) | Single shared PostgreSQL instance for local Minikube, with per app databases and roles |
+| `k8s_entrega2/20-users-app.yml` | Deployment + Service (users-app) | users service, ClusterIP |
+| `k8s_entrega2/21-posts-app.yml` | Deployment + Service (posts-app) | posts service, ClusterIP |
+| `k8s_entrega2/22-offers-app.yml` | Deployment + Service (offers-app) | offers service, ClusterIP |
+| `k8s_entrega2/23-routes-app.yml` | Deployment + Service (routes-app) | routes service, ClusterIP |
+| `k8s_entrega2/24-scores-app.yml` | Deployment + Service (scores-app) | scores service, ClusterIP |
 | `k8s_entrega2/25-rf003-create-post-app.yml` | Deployment + Service (rf003-create-post-app) | RF-003 orchestrator (stateless, no DB), ClusterIP |
 | `k8s_entrega2/26-rf004-create-offer-app.yml` | Deployment + Service (rf004-create-offer-app) | RF-004 orchestrator (stateless, no DB), ClusterIP |
 | `k8s_entrega2/27-rf005-query-post-app.yml` | Deployment + Service (rf005-query-post-app) | RF-005 orchestrator (stateless, no DB), ClusterIP |
 | `k8s_entrega2/zz-ingress.yml` | Ingress resource (`microservices-ingress`) | Single entry point routing to all 8 services |
 
-### Legacy Entrega 1 manifests (`k8s/entrega1_k8s/`)
+The `k8s_entrega2/00-secrets.yml` file is the AWS shaped template (it uses
+`${RDS_ADDRESS}` style placeholders and is rendered by the pipeline), and
+`k8s_entrega2/00-secrets.yml.tpl` documents the per app secret shape. The
+`local-only/` folder is excluded from `config.yaml` `k8s_manifests`, so the
+AWS EKS pipeline never applies the local shared DB (production uses real
+RDS).
+
+### Legacy Entrega 1 manifests (`k8s/`)
+
+The legacy manifests live directly in `k8s/` (one file per app, plus one
+NetworkPolicy per app pair):
 
 | File | Components | Purpose |
 |---|---|---|
-| `k8s/entrega1_k8s/users-app.yaml` | Deployment + Service (users-app, image `users_app:v0.0.0`), Deployment + Service (users-db) | Legacy users service with PostgreSQL, NodePort 30000 |
-| `k8s/entrega1_k8s/posts-app.yaml` | Deployment + Service (posts-app, image `posts_app:v0.0.0`), Deployment + Service (posts-db) | Legacy posts service with PostgreSQL, NodePort 30001 |
-| `k8s/entrega1_k8s/offers-app.yaml` | Deployment + Service (offers-app, image `offers_app:v0.0.0`), Deployment + Service (offers-db) | Legacy offers service with PostgreSQL, NodePort 30003 |
-| `k8s/entrega1_k8s/routes-app.yaml` | Deployment + Service (routes-app, image `routes_app:v0.0.0`), Deployment + Service (routes-db) | Legacy routes service with PostgreSQL, NodePort 30002 |
-| `k8s/entrega1_k8s/*-network-policy.yaml` | NetworkPolicy resources | Database isolation per app pair |
+| `k8s/users-app.yaml` | Deployment + Service (users-app, image `users_app:v0.0.0`), Deployment + Service (users-db) | Legacy users service with PostgreSQL, NodePort 30000 |
+| `k8s/posts-app.yaml` | Deployment + Service (posts-app, image `posts_app:v0.0.0`), Deployment + Service (posts-db) | Legacy posts service with PostgreSQL, NodePort 30001 |
+| `k8s/offers-app.yaml` | Deployment + Service (offers-app, image `offers_app:v0.0.0`), Deployment + Service (offers-db) | Legacy offers service with PostgreSQL, NodePort 30003 |
+| `k8s/routes-app.yaml` | Deployment + Service (routes-app, image `routes_app:v0.0.0`), Deployment + Service (routes-db) | Legacy routes service with PostgreSQL, NodePort 30002 |
+| `k8s/*-network-policy.yaml` | NetworkPolicy resources | Database isolation per app pair |
 
 The `ci_entrega1_evaluador_k8s.yml` pipeline (GitHub) builds the
 underscore images (`users_app:v0.0.0`, etc.) from the top-level
 `users_app` / `posts_app` / `offers_app` / `routes_app` keys in
-`config.yaml` and applies the whole `k8s/` tree (which only contains this
-subfolder). The top-level `config.yaml` keys exist precisely so that
-`yq '.users_app.folder'` and friends resolve; the `apps:` list (hyphenated
-image names) feeds the `ci_entrega2_deploy.yml` pipeline instead.
+`config.yaml` and applies the whole `k8s/` tree. The top-level `config.yaml`
+keys exist precisely so that `yq '.users_app.folder'` and friends resolve;
+the `apps:` list (hyphenated image names) feeds the `ci_entrega2_deploy.yml`
+pipeline instead.
 
 ### Secrets Management
 
 All database credentials reference K8s Secrets via `secretKeyRef`. There are two deployment environments with different secrets strategies:
 
-#### Local Minikube (Entrega 1 model) per-app databases
+#### Local Minikube (shared database instance)
 
-Each app has its own separate PostgreSQL pod. Each app reads DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD from its own per-app Secret in `k8s_entrega2/00-secrets.yml`.
+All five apps share a single PostgreSQL instance: the `shared-db` Deployment
+in `k8s_entrega2/local-only/15-shared-db.yml`. Each app uses its own
+database and role within that instance, and reads DB_HOST, DB_PORT, DB_NAME,
+DB_USER, DB_PASSWORD from its own per app Secret in
+`k8s_entrega2/local-only/00-secrets.yml` (DB_HOST is `shared-db-service`).
 
 ```bash
-# Deploy local secrets
-kubectl apply -f k8s_entrega2/00-secrets.yml
+# Deploy local secrets and the shared database instance
+kubectl apply -f k8s_entrega2/local-only/00-secrets.yml
+kubectl apply -f k8s_entrega2/local-only/15-shared-db.yml
 ```
 
-#### AWS Production (Entrega 2 model) shared RDS instance
+#### AWS Production (shared RDS instance)
 
 All five apps connect to the **same** RDS PostgreSQL instance (`shared_db`). Data isolation is achieved at the PostgreSQL level through:
 
 1. **Schema-level isolation**: Each app uses a different schema (`users`, `posts`, `offers`, `routes`, `scores`) within the shared database.
 2. **Role-level isolation**: Each app has its own database role with privileges scoped to its own schema only no cross-schema queries are possible.
 
-The two-step credential model:
+The credential model in production:
 
-1. `shared-db-secrets` (shared by all apps) provides `DB_HOST`, `DB_PORT`, and `DB_NAME` (the shared RDS endpoint). Populated by ESO from a single AWS Secrets Manager entry (for example, `aws-secrets-manager/shared-db`).
-2. Per-app credentials (for example, `users-app-db-creds`) provide `SCHEMA_NAME`, `DB_ROLE`, `DB_USER`, and `DB_PASSWORD`. Each app's deployment sets `DB_HOST` and `DB_PORT` from `shared-db-secrets`, and connects to the shared database using its own schema/role for data isolation.
+1. The `1_database` Terraform stack creates the AWS Secrets Manager secret
+   with the RDS endpoint and credentials.
+2. The `k8s_entrega2/00-secrets.yml` template (one Secret per app, for
+   example `users-app-secrets`) holds the `DB_HOST`, `DB_PORT`, `DB_NAME`,
+   `DB_USER`, and `DB_PASSWORD` keys; the pipeline renders the `${...}`
+   placeholders and the **External Secrets Operator (ESO)** keeps the values
+   in sync with AWS Secrets Manager at runtime.
+3. Each app connects to the shared RDS instance using its own schema and
+   role for data isolation.
 
-```bash
-# Deploy AWS production secrets (ESO will populate values from Secrets Manager)
-kubectl apply -f k8s_entrega2/00-aws-secrets-shared-db.yml
-```
-
-**To switch an app Deployment for AWS:** Update each app's env block so DB_HOST and DB_PORT read from `shared-db-secrets` (instead of the per-app local secret), and add SCHEMA_NAME and DB_ROLE from the per-app credentials. See the header comment in `k8s_entrega2/20-users-app.yml` for the full instructions.
+**To switch an app Deployment for AWS:** Update each app's env block so
+DB_HOST and DB_PORT read from the rendered secret values, and add
+SCHEMA_NAME and DB_ROLE for the per app schema isolation. See the header
+comment in `k8s_entrega2/20-users-app.yml` for the full instructions.
 
 #### Production notes
 
 1. The **External Secrets Operator (ESO)** watches these Secret objects and populates them from **AWS Secrets Manager** at runtime.
 2. No base64 values need to be stored in the repository for production.
-3. For local development, placeholder values are stored in `k8s_entrega2/00-secrets.yml` and `k8s_entrega2/00-aws-secrets-shared-db.yml` for testing purposes only.
+3. For local development, placeholder values are stored in `k8s_entrega2/local-only/00-secrets.yml` for testing purposes only.
 
 To encode or decode credentials:
 
@@ -765,7 +920,7 @@ echo "bXktc2VjcmV0LXZhbHVl" | base64 -d
 
 ## Contributing
 
-Work is managed through the team's repository [Kanban board](https://github.com/orgs/MISW-4301-Desarrollo-Apps-en-la-Nube/projects/370/views/1).
+Work is managed through the team's project board (see `config.yaml` `board` for the URL).
 
 Each team member is responsible for an application, including its code, tests, `Dockerfile`, `k8s/` manifests, and associated documentation.
 

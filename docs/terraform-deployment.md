@@ -2,11 +2,13 @@
 
 ## Overview
 
-This project uses Terraform to provision cloud infrastructure on AWS (Amazon Web Services) in the `us-east-1` region. The infrastructure consists of three stacks deployed in a specific order: network, data, and compute. Each stack is responsible for a specific layer of the architecture.
+This project uses Terraform to provision cloud infrastructure on AWS (Amazon Web Services) in the `us-east-1` region. The infrastructure is organized into the stacks under `terraform/stacks/`: `0_storage`, `1_database`, `2_registry`, and `eks`. The active deployment order is the one declared in `config.yaml` `tf_stacks`: `1_database` → `2_registry` → `eks` (destroy runs in reverse order).
+
+The `0_storage` stack is commented out in `tf_stacks` because the S3 bucket it creates must exist **before any stack can initialize its S3 state backend**: a stack cannot store its state in a bucket that the same stack is supposed to create. For that reason it is provisioned manually, once, with the custom automation scripts in `scripts/terraform_scripts/` (for example `0_bootstrap_state_bucket.sh`, which creates the bucket directly with the AWS CLI and then the rest of the flow uses it as backend). This bootstrap is only possible in `dev` environments with those custom automation scripts; in the student evaluation workflow ("Entrega 2 Deploy") the state backend bucket already exists in the account, so the pipeline simply runs `1_init_all.sh`, `2_plan_all.sh`, and `3_apply_reviewed.sh` over the active stacks.
 
 The deployment pipeline (`ci_entrega2_deploy.yml`) orchestrates the following steps:
 
-1. Terraform applies each stack in order (network -> data -> compute).
+1. Terraform applies each stack in `tf_stacks` order (`1_database` → `2_registry` → `eks`).
 2. Docker images are built and pushed to Amazon ECR repositories.
 3. Kubernetes manifests are applied to the EKS cluster.
 
@@ -14,30 +16,26 @@ The deployment pipeline (`ci_entrega2_deploy.yml`) orchestrates the following st
 
 ```mermaid
 graph TD
+
   subgraph GitHub["GitHub Repository + Actions"]
     GitCode[Git Push] --> Pipeline[ci_entrega2_deploy.yml]
-    TFCode[terraform/\nstacks/* +\nenvironments/*] --> Pipeline
-    AppCode[App Dockerfiles\n(users_app, posts_app,\noffers_app, etc.)] --> Pipeline
+    TFCode[terraform/\nstacks/ +\nenvironments/] --> Pipeline
+    AppCode["App Dockerfiles\n(users_app, posts_app,\noffers_app, etc.)"] --> Pipeline
   end
 
   subgraph AWS["AWS us-east-1"]
-    subgraph EKS["EKS Cluster (compute)"]
+    subgraph EKS["EKS Cluster (eks stack)"]
       K8sPods[Kubernetes Pods\norchestrators + apps]
     end
-    RDS[RDS PostgreSQL\ndata layer]
-    ECR[ECR Repositories\none per app]
-
-    subgraph Network["VPC/Networking (network)"]
-      VPC[VPC]
-      IGW[Internet Gateway]
-      NAT[NAT Gateway]
-    end
+    RDS[RDS PostgreSQL\n1_database stack]
+    ECR[ECR Repositories\n2_registry stack, one per app]
+    S3[S3 State Backend Bucket\n0_storage stack, manual bootstrap]
   end
 
   Pipeline --> EKS
   Pipeline --> RDS
   Pipeline --> ECR
-  Pipeline --> Network
+  S3 -.-> |stores terraform.tfstate\nof every stack| TFCode
 
   K8sPods --> RDS
   K8sPods -.-> |pull images from| ECR
@@ -47,97 +45,68 @@ graph TD
   style EKS fill:#ff9,stroke:#333
   style RDS fill:#9f9,stroke:#333
   style ECR fill:#ff9,stroke:#333
-  style Network fill:#cfc,stroke:#333
+  style S3 fill:#cfc,stroke:#333
 ```
 
 ## Stack Decomposition
 
-The project follows a three-stack decomposition model:
+The project follows a four-stack decomposition model:
 
 | Order | Stack | Components | Purpose |
 |-------|-------|-----------|---------|
-| 1 | **network** | VPC, public/private subnets (2 AZs), Internet Gateway, NAT Gateway, Route Tables, Security Groups (RDS, EKS nodes, ALB) | Provides the isolated networking foundation for all other stacks. |
-| 2 | **data** | RDS PostgreSQL instance, Secrets Manager secrets (DB credentials + per-app schema isolation), SSM Parameter (schema creation script) | Provisions the shared database layer with per-app schema/role isolation. |
-| 3 | **compute** | EKS Cluster (v1.31), managed node group, ECR repositories (8 total), IAM roles (cluster, nodes, pod identity), OIDC provider | Provides the container orchestration platform and image registry for application workloads. |
+| 0 (manual) | **0_storage** | S3 bucket used as the Terraform state backend for all stacks (versioning, public access block, default encryption) | Must exist before any stack can `terraform init` with the S3 backend. Provisioned once with the bootstrap script, not part of the pipeline order. |
+| 1 | **1_database** | RDS PostgreSQL instance, Secrets Manager secret (DB credentials), per-app schema and role isolation (`users`, `posts`, `offers`, `routes`, `scores`), `create_app_tables` variable that creates the shared app tables | Provisions the shared database layer with per-app schema/role isolation. |
+| 2 | **2_registry** | 8 ECR repositories (one per app and orchestrator) with tag retention rules | Provides the image registry for all application workloads. |
+| 3 | **eks** | EKS cluster, managed node group, IAM roles (cluster, nodes, pod identity), OIDC provider for IRSA | Provides the container orchestration platform for application workloads. |
 
-This separation of concerns allows each stack to be deployed and destroyed independently while maintaining clear dependency boundaries: **compute** depends on both **network** and **data**; **data** depends on **network**.
+The helper scripts in `scripts/terraform_scripts/` automate the flow over all active stacks: `0_bootstrap_state_bucket.sh` (creates the state backend bucket, manual), `1_init_all.sh`, `2_plan_all.sh`, `3_apply_reviewed.sh`, and `zz_destroy_all.sh` (reverse order).
 
 ## Stack README Files
 
-Each stack includes a detailed README describing its components, variables, outputs, and relationships. These READMEs are auto-copied during the GitHub Pages deployment process.
+Each stack includes a detailed README describing its components, variables, outputs, and relationships. These READMEs are auto-copied into `docs/terraform/` during the GitHub Pages deployment process (see `.github/workflows/pages.yml`).
 
-- [Network Stack README](./terraform/network-README.md)
-- [Data Stack README](./terraform/data-README.md)
-- [Compute Stack README](./terraform/compute-README.md)
+- [0_storage Stack README](../terraform/stacks/0_storage/README.md)
+- [1_database Stack README](../terraform/stacks/1_database/README.md)
+- [2_registry Stack README](../terraform/stacks/2_registry/README.md)
+- [eks Stack README](../terraform/stacks/eks/README.md)
 
 ## Local Deployment (Development Testing)
 
-This section describes how to deploy the infrastructure locally for development and testing purposes. The local deployment uses a `local` Terraform backend with stub state files that simulate AWS resource outputs without creating real AWS resources.
+This section describes how to deploy the infrastructure locally for development and testing purposes. The local deployment uses the helper scripts in `scripts/terraform_scripts/`, which run the same init, plan, and apply flow over every active stack.
 
 ### Prerequisites
 
-- [Terraform >= 1.10.0](https://developer.hashicorp.com/terraform/install) installed
-- [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) configured (for any AWS operations, such as kubectl configuration)
+- Terraform 1.10.0 or newer installed
+- AWS CLI configured (for any AWS operations, for example `kubectl` configuration and the state backend bootstrap)
 - A valid `aws` credential profile or environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`)
 
-### Step 1: Network Stack
+### Step 1: Bootstrap the state backend bucket (once, manual)
 
 ```bash
-# Navigate to the network stack directory
-cd terraform/stacks/network
-
-# Initialize Terraform with local backend
-terraform init
-
-# Review the plan (uses defaults from network-terraform.tfvars)
-terraform plan -var-file=../../environments/student1/network/network-terraform.tfvars
-
-# Apply the network stack
-terraform apply -var-file=../../environments/student1/network/network-terraform.tfvars
+# From repo root; creates the S3 bucket used as the Terraform state backend
+# for all stacks. Must exist before any `terraform init` with the S3 backend.
+./scripts/terraform_scripts/0_bootstrap_state_bucket.sh
 ```
 
-The network stack creates: VPC with CIDR `10.0.0.0/16`, 2 public subnets, 2 private subnets, Internet Gateway, NAT Gateway, route tables, and security groups for RDS, EKS nodes, and ALB.
+This step is only possible in `dev` environments with these custom automation scripts. In the student evaluation workflow ("Entrega 2 Deploy") the bucket already exists in the account, so this step is skipped.
 
-### Step 2: Data Stack
+### Step 2: Init, plan, and apply all active stacks
 
 ```bash
-# Navigate to the data stack directory
-cd ../data
-
-# Initialize Terraform with local backend
-terraform init
-
-# Review the plan (uses defaults from data-terraform.tfvars)
-# IMPORTANT: db_username and db_password are required variables. 
-# Override them in data-terraform.tfvars or via command line:
-terraform plan \
-  -var-file=../../environments/student1/data/data-terraform.tfvars
-
-# Apply the data stack
-terraform apply \
-  -var-file=../../environments/student1/data/data-terraform.tfvars
+# From repo root, in order:
+./scripts/terraform_scripts/1_init_all.sh
+./scripts/terraform_scripts/2_plan_all.sh
+./scripts/terraform_scripts/3_apply_reviewed.sh
 ```
 
-The data stack creates: a single RDS PostgreSQL instance (db.t3.micro, 20 GB gp3 storage), Secrets Manager secret for master DB credentials, per-app Secrets Manager secrets with generated passwords, and an SSM Parameter storing the schema creation SQL script.
+The scripts iterate over the stacks declared in `config.yaml` `tf_stacks` (`1_database`, `2_registry`, `eks`), using the `backend.tfvars` and `terraform.tfvars` files under `terraform/environments/<environment>/<stack>/`. The apply script pauses for manual review of each plan before applying.
 
-### Step 3: Compute Stack
+### Step 3: Destroy (reverse order)
 
 ```bash
-# Navigate to the compute stack directory
-cd ../compute
-
-# Initialize Terraform with local backend
-terraform init
-
-# Review the plan (uses defaults from terraform-compute.tfvars)
-terraform plan -var-file=../../environments/student1/compute/terraform-compute.tfvars
-
-# Apply the compute stack
-terraform apply \
-  -var-file=../../environments/student1/compute/terraform-compute.tfvars
+# From repo root; destroys the stacks in reverse tf_stacks order
+./scripts/terraform_scripts/zz_destroy_all.sh
 ```
-
-The compute stack creates: an EKS cluster (Kubernetes v1.31) with a managed node group (2 t3.medium nodes), 8 ECR repositories (one per app in config.yaml), IAM roles for the cluster, nodes, and pod identity, and an OIDC provider for IRSA.
 
 ### Verification Steps
 
@@ -164,28 +133,30 @@ kubectl get nodes
 
 ## Stack Deployment Order
 
-The stacks must be deployed in the following order:
+The stacks are deployed in the order declared in `config.yaml` `tf_stacks`:
 
-1. **network**: foundational infrastructure (no dependencies)
-2. **data**: depends on network stack outputs via remote state
-3. **compute**: depends on both network and data stack outputs via remote state
+1. **1_database**: shared RDS instance, Secrets Manager secret, and per-app schema/role isolation (no upstream stack dependencies)
+2. **2_registry**: ECR repositories (no upstream stack dependencies)
+3. **eks**: EKS cluster and node group (reads the RDS endpoint and secret ARN from `1_database`, and the ECR repository URIs from `2_registry`)
+
+The `0_storage` stack (state backend bucket) is always deployed before any of the above, manually, because it cannot be part of the order: the bucket must exist before any stack can initialize its S3 backend.
 
 ## Destroy Order
 
-Destroy the stacks in reverse order to avoid dependency conflicts:
+Destroy the stacks in reverse `tf_stacks` order (the `zz_destroy_all.sh` script automates this):
 
 ```bash
-# 1. Destroy compute (EKS cluster, ECR repos)
-cd terraform/stacks/compute && terraform destroy \
-  -var-file=../../environments/student1/compute/terraform-compute.tfvars
+# 1. Destroy eks (EKS cluster, node group)
+cd terraform/stacks/eks && terraform destroy \
+  -var-file=../../environments/student1/eks/terraform.tfvars
 
-# 2. Destroy data (RDS instance, Secrets Manager secrets)
-cd ../data && terraform destroy \
-  -var-file=../../environments/student1/data/data-terraform.tfvars
+# 2. Destroy 2_registry (ECR repositories)
+cd ../2_registry && terraform destroy \
+  -var-file=../../environments/student1/2_registry/terraform.tfvars
 
-# 3. Destroy network (VPC, subnets, gateways, security groups)
-cd ../network && terraform destroy \
-  -var-file=../../environments/student1/network/network-terraform.tfvars
+# 3. Destroy 1_database (RDS instance, Secrets Manager secret)
+cd ../1_database && terraform destroy \
+  -var-file=../../environments/student1/1_database/terraform.tfvars
 ```
 
 ## Post-Deployment: Kubernetes Workloads
@@ -224,65 +195,45 @@ kubectl get ingress
 
 ### Per-App Schema Initialization
 
-The data stack stores a schema creation SQL script in SSM Parameter `/shared-suitcase/rds/schema-create`. Execute this script on the RDS instance to create per-app schemas and roles:
-
-```bash
-# Get the schema script from SSM Parameter Store
-SCHEMA_SCRIPT=$(aws ssm get-parameter \
-  --name "/shared-suitcase/rds/schema-create" \
-  --region us-east-1 \
-  --query 'Parameter.Value' --output text)
-
-# Execute the script on the RDS instance (requires psql CLI and access to the DB subnet)
-echo "$SCHEMA_SCRIPT" | psql "host=<RDS_ENDPOINT> port=5432 dbname=shared_db user=admin"
-```
+The `1_database` stack creates the shared app tables in the RDS database when the `create_app_tables` variable is `true`. The default table names are `["users", "routes", "posts", "offers", "scores"]`, and each table is owned by its app's schema and role (for example, the `users` table lives in the `users` schema and is writable only by the `users_user` role). No separate SSM parameter or manual SQL script is needed: the schema creation happens as part of the stack apply.
 
 ## Terraform State Backend Configuration
 
-### Local Testing
+### S3 Remote Backend (all stacks)
 
-For local development testing, each stack uses a `local` backend by default. The state file path is specified in the `backend.tfvars` files under:
+Every stack stores its state in the shared S3 bucket created by the `0_storage` bootstrap, with one key per stack. The backend is configured in the `backend.tfvars` files under:
 
 ```
-terraform/environments/<environment>/network/backend.tfvars
-terraform/environments/<environment>/data/backend.tfvars
-terraform/environments/<environment>/compute/backend.tfvars
+terraform/environments/<environment>/0_storage/backend.tfvars
+terraform/environments/<environment>/1_database/backend.tfvars
+terraform/environments/<environment>/2_registry/backend.tfvars
+terraform/environments/<environment>/eks/backend.tfvars
 ```
 
-Example for the compute stack:
+Example for the `1_database` stack:
 
 ```hcl
-path = terraform.tfstate
+bucket = "terraform-dann-pe-trujillo-prod"
+key    = "database/terraform.tfstate"
+region = "us-east-1"
 ```
 
-### CI/CD Deployment to AWS Academy Accounts
-
-For CI/CD deployments to AWS Academy accounts, replace the `local` backend with an S3 remote backend with DynamoDB state locking. Configure the backend in the corresponding `backend.tfvars` file:
-
-```hcl
-bucket         = "my-terraform-state-bucket"
-key            = "<stack>/terraform.tfstate"
-region         = "us-east-1"
-dynamodb_table = "terraform-locks"
-```
-
-The stack name should replace `<stack>` (for example, `network/terraform.tfstate`, `data/terraform.tfstate`, or `compute/terraform.tfstate`).
+The stack key follows the same convention for every stack (for example, `storage/terraform.tfstate`, `registry/terraform.tfstate`, `eks/terraform.tfstate`).
 
 ## Remote State Configuration
 
-Each downstream stack reads outputs from upstream stacks via Terraform remote state. The state file paths are configured as variables:
+The `eks` stack reads outputs from the upstream stacks via Terraform remote state. The state file keys are configured as variables:
 
-| Stack | Reads From | Variable | Default Path |
+| Stack | Reads From | Variable | Default Key |
 |-------|-----------|----------|-------------|
-| data | network | `network_state_path` | `../../environments/student1/network/terraform.tfstate` |
-| compute | network | `network_state_path` | `../../environments/student1/network/terraform.tfstate` |
-| compute | data | `data_state_path` | `../../environments/student1/data/terraform.tfstate` |
+| eks | 1_database | `database_state_path` | `database/terraform.tfstate` |
+| eks | 2_registry | `registry_state_path` | `registry/terraform.tfstate` |
 
-These paths are relative to the stack directory and are resolved at runtime. For multi-environment support, each environment (for example, `student1`, `tutor`) has its own set of backend and tfvars files under `terraform/environments/<environment>/`.
+For multi-environment support, each environment (for example, `student1`, `dev`) has its own set of backend and tfvars files under `terraform/environments/<environment>/`.
 
 ## Security Considerations
 
 - **No credentials in source code**: AWS credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, DB_USERNAME, DB_PASSWORD) are stored exclusively as GitHub Environment secrets or in local `.tfvars` files excluded from version control.
-- **Least privilege IAM roles**: Each stack defines only the minimum IAM policies required for its resources. The compute stack includes Pod Identity (IRSA) so that k8s workloads can access Secrets Manager without long-lived credentials.
+- **Least privilege IAM roles**: Each stack defines only the minimum IAM policies required for its resources. The `eks` stack includes Pod Identity (IRSA) so that k8s workloads can access Secrets Manager without long-lived credentials.
 - **Per-app credential isolation**: Each application has its own Secrets Manager secret with a unique generated password, preventing cross-app credential sharing.
 - **RDS deletion protection is disabled**: This simplifies local testing and stack destroy workflows, but should be enabled in production environments.

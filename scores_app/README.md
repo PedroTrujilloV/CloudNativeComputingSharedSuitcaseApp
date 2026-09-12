@@ -180,7 +180,7 @@ internal-only (ClusterIP); no external exposure is required.
 ### Prerequisites
 
 - Python 3.11
-- [Poetry](https://python-poetry.org/docs/#installation)
+- Poetry (the Python dependency manager)
 
 ### Install dependencies
 

@@ -4,6 +4,7 @@ on:
   push:
     branches:
      # - '**'
+     # - '**'
       - main   # default main change if your default branch has a different name
 
   # Allows manually triggering the workflow from the Actions tab
@@ -42,12 +43,11 @@ jobs:
       - name: Stage Terraform stack READMEs into docs
         run: |
           mkdir -p docs/terraform
-          for stack in network data compute; do
+          for stack in 0_storage 1_database 2_registry eks; do
             if [ -f "terraform/stacks/$stack/README.md" ]; then
               cp "terraform/stacks/$stack/README.md" "docs/terraform/${stack}-README.md"
             fi
           done
-         
 
       - name: Setup Pages
         uses: actions/configure-pages@v5

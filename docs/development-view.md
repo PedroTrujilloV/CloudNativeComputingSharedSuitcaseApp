@@ -8,6 +8,8 @@
     - [Application Folders](#application-folders)
     - [k8s Folders](#k8s-folders)
     - [Ingress](#ingress)
+    - [k8s Folders](#k8s-folders)
+    - [Ingress](#ingress)
     - [docs Folder](#docs-folder)
     - [config.yaml File](#configyaml-file)
   - [API Endpoints](#api-endpoints)
@@ -16,12 +18,14 @@
     - [Unit Tests](#unit-tests)
     - [Integration Tests](#integration-tests)
   - [Pipelines](#pipelines)
-- [Run Orchestators](#run-orchestators)
+- [Run Orchestrators](#run-orchestrators)
+  - [RF-003 Post Creation](#rf-003-post-creation)
   - [RF-004 Offer Creation](#rf-004-offer-creation)
     - [Run the RF-004 orchestrator locally](#run-the-rf-004-orchestrator-locally)
     - [Run the RF-004 orchestrator with Docker](#run-the-rf-004-orchestrator-with-docker)
     - [Deploy the RF-004 orchestrator (Minikube/EKS)](#deploy-the-rf-004-orchestrator-minikubeeks)
     - [Manual verification of RF-004](#manual-verification-of-rf-004)
+  - [RF-005 Post Query](#rf-005-post-query)
 
 ## Project Structure
 
@@ -43,9 +47,13 @@
 ├── scores_app/                      # Scores application (Entrega 2)
 │   └── README.md                    # App structure, tests, env vars, config, execution
 │
-├── k8s/                             # Legacy Entrega 1 manifests (k8s/entrega1_k8s/)
+├── rf003_create_post_app/           # RF-003 orchestrator (Entrega 2)
+├── rf004_create_offer_app/          # RF-004 orchestrator (Entrega 2)
+├── rf005_query_post_app/            # RF-005 orchestrator (Entrega 2)
+│
+├── k8s/                             # Legacy Entrega 1 manifests (users-app.yaml, etc.)
 ├── k8s_entrega2/                    # Entrega 2 manifests (secrets, apps, ingress, local-db)
-├── scripts/                         # Local deploy/verify scripts + rf004/rf005 stub image
+├── scripts/                         # Local deploy/verify scripts + terraform helper scripts
 │
 ├── docs/                            # Technical documentation
 │   ├── README.md                    # Documentation home + team + technologies + TOC
@@ -99,31 +107,33 @@ and they must not be applied to the same cluster at the same time.
   File names encode the apply order (00 secrets, 15 shared db, 20 apps, zz
   ingress), which matches the alphabetical order used by the
   `ci_entrega2_deploy.yml` pipeline.
-- **`k8s/entrega1_k8s/`** contains the original legacy Entrega 1 manifests
-  (`.yaml`) for the four original apps, with underscore image names
+- **`k8s/`** contains the original legacy Entrega 1 manifests
+  (`.yaml`) for the four original apps (for example `users-app.yaml`,
+  `users-network-policy.yaml`), with underscore image names
   (`users_app:v0.0.0`, etc.). The `ci_entrega1_evaluador_k8s.yml` pipeline
   (GitHub) builds those images and applies the whole `k8s/` tree.
 
 **Docker image naming**: The `k8s_entrega2/` manifests use hyphenated image
 names matching the `apps:` list in `config.yaml` exactly (for example,
-`users-app:v0.0.0`, `scores-app:v0.0.0`). The legacy `k8s/entrega1_k8s/`
+`users-app:v0.0.0`, `scores-app:v0.0.0`). The legacy `k8s/`
 manifests use the underscore names from the top-level `config.yaml` keys
 (for example, `users_app:v0.0.0`).
 
 **Local automation**: `scripts/local-deploy.sh` and `scripts/local-verify.sh`
 deploy and verify the `k8s_entrega2/` stack on Minikube (see the
-[README](../README.md#run-with-minikube)). `scripts/stubs/` provides a
-ping-only image for `rf004`/`rf005`, whose real code lives in separate
-branches.
+[README](../README.md#run-with-minikube)). `scripts/local-deploy.sh` builds
+the eight images from the real application folders (the four legacy apps,
+`scores_app`, and the three orchestrators) and applies the manifests in the
+order encoded in their file names.
 
 ### Ingress
 
 `k8s_entrega2/zz-ingress.yml` (resource name `microservices-ingress`)
 provides a single public entry point routing by path prefix to all eight
-services. It supports two deployment environments:
+services. It is applied unchanged in both environments:
 
-- **Local Minikube**: pre-configured with `ingressClassName: nginx` for the NGINX ingress addon
-- **AWS EKS production**: change to `ingressClassName: alb` and add ALB annotations per the [README documentation](../README.md#ingress-configurations-two-environments)
+- **Local Minikube**: uses `ingressClassName: nginx` with the NGINX ingress addon
+- **AWS EKS production**: the same `ingressClassName: nginx`. The course project required an AWS ALB, but the AWS Academy academic accounts do not allow ALB, so the NGINX ingress controller is used in both environments (see the [Deployment View](./deployment-view.md#ingress-deployment-details))
 
 ### docs Folder
 
@@ -206,13 +216,96 @@ The `.github/workflows/` folder contains the following pipelines:
 
 * `ci_entrega1_evaluador_docs.yml`: validates the technical documentation and PlantUML diagrams. **This file must not be modified.**
 * `ci_entrega1_evaluador_k8s.yml`: validates the Minikube deployment, database configuration, and API contract of each application. **This file must not be modified.**
+* `ci_entrega1_evaluador_k8s.yml`: validates the Minikube deployment, database configuration, and API contract of each application. **This file must not be modified.**
 * `ci_evaluador_unit.yml`: runs the unit tests and validates the minimum 70% coverage for each application. **This is the only pipeline file the team should modify**, by adding one job for each application.
+* `ci_entrega2_deploy.yml` (Entrega 2): builds the images declared under `apps:` in `config.yaml` (including `scores-app:v0.0.0`), pushes them to ECR, deploys the Terraform stacks, and applies the `k8s_entrega2/` manifests (listed in `k8s_manifests`).
 * `ci_entrega2_deploy.yml` (Entrega 2): builds the images declared under `apps:` in `config.yaml` (including `scores-app:v0.0.0`), pushes them to ECR, deploys the Terraform stacks, and applies the `k8s_entrega2/` manifests (listed in `k8s_manifests`).
 * `ci_entrega2_destroy.yml` (Entrega 2): manually destroys the Terraform stacks in reverse order.
 * `ci_pipeline.yml`: runs the Vale documentation checker on `docs/` for every push/PR to `main`.
 
 
-# Run Orchestators
+# Run Orchestrators
+
+## RF-003 Post Creation
+
+The `rf003_create_post_app` orchestrator exposes the client facing endpoint
+`POST /rf003/posts`. A request carries a Bearer token (validated against the
+Users service) and a JSON body with the post details (`flightId`, airport
+codes, countries, `bagCost`, planned dates, and `expireAt`). The orchestrator
+then:
+
+1. Validates the caller token (403 without a token, 401 with an invalid one).
+2. Resolves the route by `flightId` in the Routes service: it reuses an
+   existing route, or creates it and marks it as created by this request.
+3. Creates the post in the Posts service, referencing the route.
+
+Consistency (saga compensation, documented in
+[solution-patterns.md](./solution-patterns.md#rf-003)): the flow performs two
+writes on two independently owned stores (Routes, Posts) with no distributed
+transaction, and the team's definition of consistency is **either both writes
+exist or neither does**. When the post stage fails with an integration error
+(Posts unreachable) and the route was created by this same request, the
+orchestrator runs the compensating action (deletes the route through
+`DELETE /routes/{id}`) and answers `503` with the message `El servicio está
+temporalmente fuera de servicio.`, so no orphaned route remains. Pre-existing
+routes (reused by `flightId`) are never compensated, and business rejections
+(400/412) pass through unchanged and never trigger compensation. The full
+contract, status code table, and environment variables are documented in the
+[RF-003 app README](../rf003_create_post_app/README.md).
+
+### Run the RF-003 orchestrator locally
+
+```bash
+cd rf003_create_post_app
+poetry install
+USERS_SERVICE_URL=http://localhost:8000 \
+ROUTES_SERVICE_URL=http://localhost:8002 \
+POSTS_SERVICE_URL=http://localhost:8003 \
+poetry run uvicorn entrypoints.api.main:app --host 0.0.0.0 --port 8001
+```
+
+All three downstream services must be running for the happy path (Users on
+`8000`, Routes on `8002`, Posts on `8003`; any ports work if you export the
+matching `*_SERVICE_URL` values).
+
+### Run the RF-003 orchestrator with Docker
+
+```bash
+cd rf003_create_post_app
+docker build -t rf003-create-post-app:v0.0.0 .
+docker run --rm -p 8001:8000 \
+  -e USERS_SERVICE_URL=http://users-app-service:8000 \
+  -e ROUTES_SERVICE_URL=http://routes-app-service:8000 \
+  -e POSTS_SERVICE_URL=http://posts-app-service:8000 \
+  rf003-create-post-app:v0.0.0
+```
+
+### Deploy the RF-003 orchestrator (Minikube/EKS)
+
+Build and push the image to ECR, then create the Deployment and Service
+(name `rf003-create-post-service`, port `8000`) with the
+`USERS_SERVICE_URL`, `ROUTES_SERVICE_URL`, and `POSTS_SERVICE_URL`
+environment variables pointing at the cluster DNS names of each downstream
+service, and expose it through the ingress path `/rf003/posts` (see the
+[Deployment View](./deployment-view.md)).
+
+### Manual verification of RF-003
+
+The Postman collection in `scripts/entrega2/evaluate_rf003.json` covers the
+full flow (the same files the grader runs, also kept under
+`rf003_create_post_app/tests/api/`): the **Setup** folder creates the user
+and the token, then the remaining requests cover the 403/401/400/412
+scenarios and the 201 happy path (route created or reused plus post
+created).
+
+The consistency acceptance criteria are covered by
+`scripts/entrega2/evaluate_rf003_consistency.json` (stop the Posts service
+first, then run its **Consistency** folder): the post request answers `503`
+with the standard message, the follow up request verifies that no orphaned
+route remains (the compensating deletion ran), and a final request after
+restarting the Posts service confirms the `201` happy path again. The curl
+equivalent is in the
+[RF-003 app README](../rf003_create_post_app/README.md#manual-verification-curl).
 
 ## RF-004 Offer Creation
 
@@ -323,4 +416,86 @@ verifies that no orphaned offer remains for the post (the compensating
 deletion ran), and a final request after restarting the Scores service
 confirms the `201` happy path again. See the
 [RF-004 app README](../rf004_create_offer_app/README.md#manual-verification-consistency-rollback-on-a-mid-flow-outage)
+for the curl equivalent.
+
+## RF-005 Post Query
+
+The `rf005_query_post_app` orchestrator exposes the client facing endpoint
+`GET /rf005/posts/{id}`. A request carries a Bearer token (validated against
+the Users service). The orchestrator then:
+
+1. Validates the caller token (401 with an invalid one).
+2. Fetches the post from the Posts service (404 if unknown) and rejects the
+   request with 403 if the caller is not the post owner.
+3. Fetches the route from the Routes service.
+4. Fetches all offers for the post from the Offers service.
+5. Looks up the score for each offer in the Scores service. A missing or
+   unreachable score for one offer sets that offer's score to `null` and the
+   loop continues; the whole request does not fail.
+6. Sorts the offers descending by score (nulls last, with a documented
+   tie-breaking rule) and returns the post, its route, and its sorted offers.
+
+This is a read-side composition, not a write-side saga: there is no state to
+roll back, so no compensating action exists in this flow (documented in
+[solution-patterns.md](./solution-patterns.md#rf-005)). The per-offer
+fallback is an explicit resilience requirement from the project document: a
+missing or unavailable score for one offer never fails the whole response.
+Posts, Routes, and Offers are hard dependencies here: if any of them is down,
+the whole request fails with `503`. The full contract, status code table, and
+environment variables are documented in the
+[RF-005 app README](../rf005_query_post_app/README.md).
+
+### Run the RF-005 orchestrator locally
+
+```bash
+cd rf005_query_post_app
+poetry install
+USERS_SERVICE_URL=http://localhost:8000 \
+POSTS_SERVICE_URL=http://localhost:8002 \
+ROUTES_SERVICE_URL=http://localhost:8006 \
+OFFERS_SERVICE_URL=http://localhost:8003 \
+SCORES_SERVICE_URL=http://localhost:8004 \
+poetry run uvicorn entrypoints.api.main:app --host 0.0.0.0 --port 8005
+```
+
+All five downstream services must be running for the happy path (Users on
+`8000`, Posts on `8002`, Routes on `8006`, Offers on `8003`, Scores on
+`8004`; any ports work if you export the matching `*_SERVICE_URL` values).
+
+### Run the RF-005 orchestrator with Docker
+
+```bash
+cd rf005_query_post_app
+docker build -t rf005-query-post-app:v0.0.0 .
+docker run --rm -p 8005:8005 \
+  -e USERS_SERVICE_URL=http://users-app-service:8000 \
+  -e POSTS_SERVICE_URL=http://posts-app-service:8002 \
+  -e ROUTES_SERVICE_URL=http://routes-app-service:8006 \
+  -e OFFERS_SERVICE_URL=http://offers-app-service:8003 \
+  -e SCORES_SERVICE_URL=http://scores-app-service:8004 \
+  rf005-query-post-app:v0.0.0
+```
+
+### Deploy the RF-005 orchestrator (Minikube/EKS)
+
+Build and push the image to ECR, then create the Deployment and Service
+(name `rf005-query-post-service`, port `8005`) with the
+`USERS_SERVICE_URL`, `POSTS_SERVICE_URL`, `ROUTES_SERVICE_URL`,
+`OFFERS_SERVICE_URL`, and `SCORES_SERVICE_URL` environment variables
+pointing at the cluster DNS names of each downstream service, and expose it
+through the ingress path `/rf005/posts/{id}` (see the
+[Deployment View](./deployment-view.md)).
+
+### Manual verification of RF-005
+
+The automated manual verification script in
+`scripts/rf005_automations/rf005_manual_verification.sh` runs the whole flow
+against the real services and asserts every documented status code and body
+(empty bodies for 403/401/404, the exact `503` message, and the full `200`
+payload with the score-descending / nulls-last ordering). The graded Postman
+collections live in `scripts/entrega2/evaluate_rf005.json` and
+`scripts/entrega2/evaluate_rf005_consistency.json` (the consistency
+collection stops the Scores service first and verifies the `200` with
+`"score": null` per offer instead of a failure). See the
+[RF-005 app README](../rf005_query_post_app/README.md#manual-verification-curl)
 for the curl equivalent.

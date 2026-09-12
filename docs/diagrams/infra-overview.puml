@@ -35,7 +35,7 @@ package "AWS (us-east-1)" as AWS {
   }
 
   package "Deployed by kubectl, running inside EKS" as K8sRuntime {
-    component "ingress (ALB)" as Ingress
+    component "ingress (NGINX)" as Ingress
     component "rf003 / rf004 / rf005\npods + services" as Orchestrators
     component "users / posts / offers /\nroutes / scores\npods + services" as Apps
   }

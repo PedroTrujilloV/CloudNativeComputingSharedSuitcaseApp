@@ -2,102 +2,151 @@
 
 actor "User" as User
 
-frame "K8s" {
+frame "AWS" {
 
-  ' ---------- Services (App) ----------
-  component "users-app-service" as UsersAppService <<Service>>
-  component "posts-app-service" as PostsAppService <<Service>>
-  component "offers-app-service" as OffersAppService <<Service>>
-  component "routes-app-service" as RoutesAppService <<Service>>
+  frame "EKS" {
 
-  ' ---------- App Pods ----------
-  node "pod" as UsersAppPod {
-    component "users-app" as UsersAppContainer <<container>> {
-      component "users_app" as UsersApp
+    ' ---------- Ingress (single access point, NGINX controller) ----------
+    component "ingress\n(NGINX controller)" as Ingress <<Ingress>>
+
+    ' ---------- Services (Orchestration apps) ----------
+    component "rf003-create-post-service" as RF003Service <<Service>>
+    component "rf004-create-offer-service" as RF004Service <<Service>>
+    component "rf005-query-post-service" as RF005Service <<Service>>
+
+    ' ---------- Services (App) ----------
+    component "users-app-service" as UsersAppService <<Service>>
+    component "posts-app-service" as PostsAppService <<Service>>
+    component "offers-app-service" as OffersAppService <<Service>>
+    component "routes-app-service" as RoutesAppService <<Service>>
+    component "scores-app-service" as ScoresAppService <<Service>>
+
+    ' ---------- Orchestration Pods ----------
+    node "pod" as RF003Pod {
+      component "rf003-create-post-app" as RF003Container <<container>> {
+        component "rf003_create_post_app" as RF003App
+      }
     }
+
+    node "pod" as RF004Pod {
+      component "rf004-create-offer-app" as RF004Container <<container>> {
+        component "rf004_create_offer_app" as RF004App
+      }
+    }
+
+    node "pod" as RF005Pod {
+      component "rf005-query-post-app" as RF005Container <<container>> {
+        component "rf005_query_post_app" as RF005App
+      }
+    }
+
+    ' ---------- App Pods ----------
+    node "pod" as UsersAppPod {
+      component "users-app" as UsersAppContainer <<container>> {
+        component "users_app" as UsersApp
+      }
+    }
+
+    node "pod" as PostsAppPod {
+      component "posts-app" as PostsAppContainer <<container>> {
+        component "posts_app" as PostsApp
+      }
+    }
+
+    node "pod" as OffersAppPod {
+      component "offers-app" as OffersAppContainer <<container>> {
+        component "offers_app" as OffersApp
+      }
+    }
+
+    node "pod" as RoutesAppPod {
+      component "routes-app" as RoutesAppContainer <<container>> {
+        component "routes_app" as RoutesApp
+      }
+    }
+
+    node "pod" as ScoresAppPod {
+      component "scores-app" as ScoresAppContainer <<container>> {
+        component "scores_app" as ScoresApp
+      }
+    }
+
+    ' ---------- Internal wiring: Ingress -> Orchestration ----------
+    Ingress --> RF003Service : "/rf003/posts"
+    Ingress --> RF004Service : "/rf004/posts/{id}/offers"
+    Ingress --> RF005Service : "/rf005/posts/{id}"
+    Ingress --> UsersAppService : "/users/*"
+    Ingress --> PostsAppService : "/posts/*"
+    Ingress --> OffersAppService : "/offers/*"
+    Ingress --> RoutesAppService : "/routes/*"
+
+    RF003Service --> RF003Pod
+    RF004Service --> RF004Pod
+    RF005Service --> RF005Pod
+
+    ' ---------- Internal wiring: Orchestration -> Apps ----------
+    RF003Pod --> UsersAppService
+    RF003Pod --> RoutesAppService
+    RF003Pod --> PostsAppService
+
+    RF004Pod --> UsersAppService
+    RF004Pod --> PostsAppService
+    RF004Pod --> RoutesAppService
+    RF004Pod --> OffersAppService
+    RF004Pod --> ScoresAppService
+
+    RF005Pod --> UsersAppService
+    RF005Pod --> PostsAppService
+    RF005Pod --> RoutesAppService
+    RF005Pod --> OffersAppService
+    RF005Pod --> ScoresAppService
+
+    ' ---------- Internal wiring: Services -> App Pods ----------
+    UsersAppService --> UsersAppPod
+    PostsAppService --> PostsAppPod
+    OffersAppService --> OffersAppPod
+    RoutesAppService --> RoutesAppPod
+    ScoresAppService --> ScoresAppPod
   }
 
-  node "pod" as PostsAppPod {
-    component "posts-app" as PostsAppContainer <<container>> {
-      component "posts_app" as PostsApp
-    }
-  }
+  ' ---------- Shared managed database ----------
+  database "RDS\n(shared_db)" as SharedDb
 
-  node "pod" as OffersAppPod {
-    component "offers-app" as OffersAppContainer <<container>> {
-      component "offers_app" as OffersApp
-    }
-  }
+  UsersAppPod --> SharedDb : "Port: 5432"
+  PostsAppPod --> SharedDb : "Port: 5432"
+  OffersAppPod --> SharedDb : "Port: 5432"
+  RoutesAppPod --> SharedDb : "Port: 5432"
+  ScoresAppPod --> SharedDb : "Port: 5432"
 
-  node "pod" as RoutesAppPod {
-    component "routes-app" as RoutesAppContainer <<container>> {
-      component "routes_app" as RoutesApp
-    }
-  }
+  ' ---------- Image registry ----------
+  artifact "ECR\n(images)" as ECR
+  ECR ..> UsersAppPod : "pull image"
+  ECR ..> PostsAppPod : "pull image"
+  ECR ..> OffersAppPod : "pull image"
+  ECR ..> RoutesAppPod : "pull image"
+  ECR ..> ScoresAppPod : "pull image"
+  ECR ..> RF003Pod : "pull image"
+  ECR ..> RF004Pod : "pull image"
+  ECR ..> RF005Pod : "pull image"
 
-  ' ---------- Services (DB) ----------
-  component "users-db-service" as UsersDbService <<Service>>
-  component "posts-db-service" as PostsDbService <<Service>>
-  component "offers-db-service" as OffersDbService <<Service>>
-  component "routes-db-service" as RoutesDbService <<Service>>
-
-  ' ---------- DB Pods ----------
-  node "pod" as UsersDbPod {
-    component "users-db" as UsersDbContainer <<container>> {
-      database "users_db" as UsersDb
-    }
-  }
-
-  node "pod" as PostsDbPod {
-    component "posts-db" as PostsDbContainer <<container>> {
-      database "posts_db" as PostsDb
-    }
-  }
-
-  node "pod" as OffersDbPod {
-    component "offers-db" as OffersDbContainer <<container>> {
-      database "offers_db" as OffersDb
-    }
-  }
-
-  node "pod" as RoutesDbPod {
-    component "routes-db" as RoutesDbContainer <<container>> {
-      database "routes_db" as RoutesDb
-    }
-  }
-
-  ' ---------- Volumes ----------
-  artifact "users-db-volumen" as UsersDbVolume
-  artifact "posts-db-volumen" as PostsDbVolume
-  artifact "offers-db-volumen" as OffersDbVolume
-  artifact "routes-db-volumen" as RoutesDbVolume
-
-  ' ---------- Internal wiring ----------
-  UsersAppService --> UsersAppPod
-  PostsAppService --> PostsAppPod
-  OffersAppService --> OffersAppPod
-  RoutesAppService --> RoutesAppPod
-
-  UsersAppPod --> UsersDbService
-  PostsAppPod --> PostsDbService
-  OffersAppPod --> OffersDbService
-  RoutesAppPod --> RoutesDbService
-
-  UsersDbService --> UsersDbPod
-  PostsDbService --> PostsDbPod
-  OffersDbService --> OffersDbPod
-  RoutesDbService --> RoutesDbPod
-
-  UsersDbPod --> UsersDbVolume
-  PostsDbPod --> PostsDbVolume
-  OffersDbPod --> OffersDbVolume
-  RoutesDbPod --> RoutesDbVolume
+  ' ---------- Secrets (ESO populates K8s Secrets from Secrets Manager) ----------
+  component "Secrets Manager" as SecretsManager
+  component "External Secrets\nOperator (ESO)" as ESO
+  SecretsManager --> ESO : "read secret"
+  ESO ..> UsersAppPod : "DB credentials"
+  ESO ..> PostsAppPod : "DB credentials"
+  ESO ..> OffersAppPod : "DB credentials"
+  ESO ..> RoutesAppPod : "DB credentials"
+  ESO ..> ScoresAppPod : "DB credentials"
 }
 
 ' ---------- External communication ----------
-User ..> UsersAppService : HTTP
-User ..> PostsAppService : HTTP
-User ..> OffersAppService : HTTP
-User ..> RoutesAppService : HTTP
+User ..> Ingress : HTTP
+
+note bottom of Ingress
+  NGINX ingress controller in both
+  environments (ALB is not available
+  on AWS Academy accounts)
+end note
 
 @enduml

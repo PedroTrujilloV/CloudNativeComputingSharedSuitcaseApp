@@ -2,26 +2,52 @@
 
 actor "User" as User
 
+component "ingress" as Ingress <<Ingress>>
+
 frame "env" {
+
+  component "rf003_create_post_app" as RF003App <<component>>
+  component "rf004_create_offer_app" as RF004App <<component>>
+  component "rf005_query_post_app" as RF005App <<component>>
+
   component "users_app" as UsersApp <<component>>
   component "posts_app" as PostsApp <<component>>
   component "offers_app" as OffersApp <<component>>
   component "routes_app" as RoutesApp <<component>>
+  component "scores_app" as ScoresApp <<component>>
 
-  database "users_db" as UsersDb
-  database "posts_db" as PostsDb
-  database "offers_db" as OffersDb
-  database "routes_db" as RoutesDb
+  database "shared_db" as SharedDb
 
-  UsersApp --> UsersDb
-  PostsApp --> PostsDb
-  OffersApp --> OffersDb
-  RoutesApp --> RoutesDb
+  UsersApp --> SharedDb
+  PostsApp --> SharedDb
+  OffersApp --> SharedDb
+  RoutesApp --> SharedDb
+  ScoresApp --> SharedDb
+
+  RF003App --> UsersApp
+  RF003App --> RoutesApp
+  RF003App --> PostsApp
+
+  RF004App --> UsersApp
+  RF004App --> PostsApp
+  RF004App --> RoutesApp
+  RF004App --> OffersApp
+  RF004App --> ScoresApp
+
+  RF005App --> UsersApp
+  RF005App --> PostsApp
+  RF005App --> RoutesApp
+  RF005App --> OffersApp
+  RF005App --> ScoresApp
 }
 
-User ..> UsersApp
-User ..> PostsApp
-User ..> OffersApp
-User ..> RoutesApp
+User ..> Ingress
+Ingress --> RF003App : "/rf003/posts"
+Ingress --> RF004App : "/rf004/posts/{id}/offers"
+Ingress --> RF005App : "/rf005/posts/{id}"
+Ingress --> UsersApp : "/users/*"
+Ingress --> PostsApp : "/posts/*"
+Ingress --> OffersApp : "/offers/*"
+Ingress --> RoutesApp : "/routes/*"
 
 @enduml

@@ -23,8 +23,10 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-REPO_ROOT="$(pwd)"
+REPO_ROOT="$(pwd)"f
 
+ACCOUNT_ID="000000000000" #"$(aws sts get-caller-identity --query Account --output text)"
+AWS_REGION="us-east-1"
 # ------------------------------------------------------------
 # 1. Clean: remove old clusters, images and containers
 # ------------------------------------------------------------
@@ -40,8 +42,8 @@ docker system prune -f >/dev/null 2>&1 || true
 #    Sizes can be overridden: MINIKUBE_CPUS=4 MINIKUBE_MEMORY=7g
 #    (defaults fit a Docker Desktop with 8 GB allocated)
 # ------------------------------------------------------------
-MINIKUBE_CPUS="${MINIKUBE_CPUS:-4}"
-MINIKUBE_MEMORY="${MINIKUBE_MEMORY:-7g}"
+MINIKUBE_CPUS="${MINIKUBE_CPUS:-2}"
+MINIKUBE_MEMORY="${MINIKUBE_MEMORY:-4g}"
 echo "==> [2/5] Starting Minikube (cpus=${MINIKUBE_CPUS}, memory=${MINIKUBE_MEMORY}) and enabling the ingress addon"
 minikube start --cpus="${MINIKUBE_CPUS}" --memory="${MINIKUBE_MEMORY}"
 minikube addons enable ingress
@@ -60,7 +62,8 @@ build_app() {
     exit 1
   fi
   echo "    building ${image} from ${folder}/"
-  docker build -t "${image}" -f "${folder}/Dockerfile" "${folder}" >/dev/null
+  local uri="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${image}"
+  docker build -t "${uri}" -f "${folder}/Dockerfile" "${folder}" >/dev/null
 }
 
 # Legacy apps (Entrega 1, hyphenated image names for the k8s_entrega2/ deployment)
@@ -75,6 +78,51 @@ build_app rf004_create_offer_app rf004-create-offer-app:v0.0.0
 build_app rf005_query_post_app rf005-query-post-app:v0.0.0
 
 # ------------------------------------------------------------
+# 3.b Replace image placeholders in Kubernetes manifests
+#     Note: the k8s_entrega2/ manifests use the ECR image URIs, not Docker Hub.
+# ------------------------------------------------------------
+
+DEPLOY_DIR="k8s_temp_local_deploy"
+cp -R k8s_entrega2/. "${DEPLOY_DIR}/"
+
+replace_image_placeholder() {
+  local manifest="$1"
+  local image="$2"
+
+  if [ ! -f "${manifest}" ]; then
+    echo "ERROR: ${manifest} not found" >&2
+    exit 1
+  fi
+
+  local image_uri="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${image}"
+
+  echo "    updating ${manifest}"
+  echo "      ${image_uri}"
+
+  # Replace the literal placeholder with the ACCOUNT_ID, AWS_REGION image URI.
+  sed -i '' "s|\${ACCOUNT_ID}|${ACCOUNT_ID}|g" "${manifest}"
+  sed -i '' "s|\${AWS_REGION}|${AWS_REGION}|g" "${manifest}"
+
+  # Make sure no placeholder remains.
+  if grep -q '${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}' "${manifest}"; then
+    echo "ERROR: Image placeholder was not fully replaced in ${manifest}" >&2
+    exit 1
+  fi
+}
+
+echo "==> [2/6] b) Replacing Kubernetes image placeholders"
+
+replace_image_placeholder "${DEPLOY_DIR}/20-users-app.yml" "users-app:v0.0.0"
+replace_image_placeholder "${DEPLOY_DIR}/21-posts-app.yml" "posts-app:v0.0.0"
+replace_image_placeholder "${DEPLOY_DIR}/22-offers-app.yml" "offers-app:v0.0.0"
+replace_image_placeholder "${DEPLOY_DIR}/23-routes-app.yml" "routes-app:v0.0.0"
+replace_image_placeholder "${DEPLOY_DIR}/24-scores-app.yml" "scores-app:v0.0.0"
+replace_image_placeholder "${DEPLOY_DIR}/25-rf003-create-post-app.yml" "rf003-create-post-app:v0.0.0"
+replace_image_placeholder "${DEPLOY_DIR}/26-rf004-create-offer-app.yml" "rf004-create-offer-app:v0.0.0"
+replace_image_placeholder "${DEPLOY_DIR}/27-rf005-query-post-app.yml" "rf005-query-post-app:v0.0.0"
+
+
+# ------------------------------------------------------------
 # 4. Apply the k8s_entrega2/ manifests in deployment order.
 #    The file names encode the order (00 secrets -> 10 network
 #    policies -> 20 apps -> zz ingress last) and match the
@@ -82,17 +130,17 @@ build_app rf005_query_post_app rf005-query-post-app:v0.0.0
 # ------------------------------------------------------------
 echo "==> [4/5] Applying k8s_entrega2/ manifests in order"
 for f in \
-  k8s_entrega2/local-only/00-secrets.yml \
-  k8s_entrega2/local-only/15-shared-db.yml \
-  k8s_entrega2/20-users-app.yml \
-  k8s_entrega2/21-posts-app.yml \
-  k8s_entrega2/22-offers-app.yml \
-  k8s_entrega2/23-routes-app.yml \
-  k8s_entrega2/24-scores-app.yml \
-  k8s_entrega2/25-rf003-create-post-app.yml \
-  k8s_entrega2/26-rf004-create-offer-app.yml \
-  k8s_entrega2/27-rf005-query-post-app.yml \
-  k8s_entrega2/zz-ingress.yml
+  "${DEPLOY_DIR}/local-only/00-secrets.yml" \
+  "${DEPLOY_DIR}/local-only/15-shared-db.yml" \
+  "${DEPLOY_DIR}/20-users-app.yml" \
+  "${DEPLOY_DIR}/21-posts-app.yml" \
+  "${DEPLOY_DIR}/22-offers-app.yml" \
+  "${DEPLOY_DIR}/23-routes-app.yml" \
+  "${DEPLOY_DIR}/24-scores-app.yml" \
+  "${DEPLOY_DIR}/25-rf003-create-post-app.yml" \
+  "${DEPLOY_DIR}/26-rf004-create-offer-app.yml" \
+  "${DEPLOY_DIR}/27-rf005-query-post-app.yml" \
+  "${DEPLOY_DIR}/zz-ingress.yml"
 do
   echo "    applying ${f}"
   kubectl apply -f "${f}"

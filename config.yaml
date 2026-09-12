@@ -4,7 +4,7 @@ team:
     - user: pe.trujillo@uniandes.edu.co
       percentage: 100
 board: "https://github.com/orgs/MISW-4301-Desarrollo-Apps-en-la-Nube/projects/370/views/1"
-docs: "https://fluffy-disco-nyww85v.pages.github.io/"
+docs: "https://miniature-disco-ee8nm6p.pages.github.io/"
 # Claves de nivel superior que lee el pipeline ci_entrega1_evaluador_k8s.yml
 # (yq '.<app>.folder' / '.<app>.image_name' / '.<app>.image_tag') para
 # construir las apps legacy en Minikube. Los nombres de imagen usan guion

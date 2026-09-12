@@ -8,7 +8,7 @@ frame "AWS VPC" {
 
     package "cluster-network" <<Network Policy>> {
 
-      component "ingress" as Ingress <<ALB / Ingress>>
+      component "ingress" as Ingress <<NGINX / Ingress>>
 
       component "rf003-create-post-service" as RF003Service <<ClusterIP>>
       node "pod" as RF003Pod {
