@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================
-# Local deployment of the Entrega 2 k8s_entrega2/ manifests on Minikube.
+# Local deployment of the k8s_entrega2/ and k8s_entrega3/ manifests
+# on Minikube.
 #
 # This script automates the manual steps documented in
 # docs/README.md ("Run with Minikube") and is also used by the
@@ -9,7 +10,10 @@
 #   2. Starts a fresh Minikube cluster with the ingress addon.
 #   3. Builds all application images into the Minikube Docker daemon.
 #   4. Applies the k8s_entrega2/ manifests in the documented deployment order.
-#   5. Waits until every Deployment is ready.
+#   5. Deploys TrueNative (k8s_entrega3/) with the SECRET_TOKEN loaded
+#      from the out of repo truenative_secrets/dev.env file (one level
+#      above the repo root), applies the Ingress, and waits until every
+#      Deployment is ready.
 #
 # Usage (from the repository root):
 #   bash scripts/local-deploy.sh
@@ -140,7 +144,7 @@ for f in \
   "${DEPLOY_DIR}/25-rf003-create-post-app.yml" \
   "${DEPLOY_DIR}/26-rf004-create-offer-app.yml" \
   "${DEPLOY_DIR}/27-rf005-query-post-app.yml" \
-  "${DEPLOY_DIR}/zz-ingress.yml"
+  # "${DEPLOY_DIR}/zz-ingress.yml"
 do
   echo "    applying ${f}"
   kubectl apply -f "${f}"
@@ -154,6 +158,55 @@ kubectl wait --for=condition=ready pod -l app=shared-db --timeout=300s
 echo "==> [5/5] Waiting for Deployments to be ready"
 for d in users-app posts-app offers-app routes-app scores-app \
   rf003-create-post-app rf004-create-offer-app rf005-query-post-app; do
+  kubectl wait --for=condition=available deployment "$d" --timeout=300s
+done
+
+
+
+# ------------------------------------------------------------
+# 6. TrueNative (k8s_entrega3/): load the SECRET_TOKEN from the out of
+#    repo dev.env file, substitute it into the manifest with envsubst,
+#    and apply the manifest BEFORE the Ingress (the /native rule routes
+#    to truenative-service).
+#    The dev.env file lives OUTSIDE the repository, one level above the
+#    repo root: <parent-of-repo>/truenative_secrets/dev.env, with a
+#    single line SECRET_TOKEN=<random string>. It is never committed.
+# ------------------------------------------------------------
+
+echo "==> [6/6] Deploying TrueNative (k8s_entrega3/)"
+
+get_dev_env_vars() {
+  local env_file="$1/dev.env"
+  # Load secrets locally if the .env file exists
+  if [ -f "$env_file" ]; then
+      # Safely export variables from the .env file for this process only
+      set -a
+      . "$env_file"
+      set +a
+  else
+      echo "Error: .env file not found in $env_file" >&2
+      exit 1
+  fi
+
+  # verify if SECRET_TOKEN exists
+  if [ -z "${SECRET_TOKEN:-}" ]; then
+      echo "ERROR: SECRET_TOKEN is not available." >&2
+      echo "Either create <parent-of-repo>/truenative_secrets/dev.env with one line (SECRET_TOKEN=<random string>), or export SECRET_TOKEN (the local manual test workflow reads it from the repository secret)." >&2
+      exit 1
+  fi
+
+}
+if [ -z "${SECRET_TOKEN:-}" ]; then
+    echo "- Loading secrets from dev.env" >&2
+    SCRIPT_DIR="$(cd $(dirname $0)/../../truenative_secrets && pwd )"
+    get_dev_env_vars "$SCRIPT_DIR" 
+fi
+
+
+envsubst < "k8s_entrega3/k8s-true-native-deployment.yml" | kubectl apply -f -
+kubectl apply -f "k8s_entrega2/zz-ingress.yml"
+
+for d in truenative; do
   kubectl wait --for=condition=available deployment "$d" --timeout=300s
 done
 

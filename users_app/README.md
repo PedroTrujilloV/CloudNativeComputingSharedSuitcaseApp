@@ -166,7 +166,7 @@ curl $(minikube service users-app-service --url)/users/ping
 
 On Windows PowerShell, `eval $(minikube docker-env)` is not available; use Minikube's documented PowerShell equivalent (`minikube docker-env | Invoke-Expression`) or run the apply from a Unix environment.
 
-### Network policy — users-db isolation
+### Network policy: users-db isolation
 
 A `NetworkPolicy` allows ingress to `users-db` **only** from pods labeled `app: users-app`, on TCP port `5432`. Other apps cannot reach `users_db`.
 

@@ -66,6 +66,8 @@
 │   ├── rf003-sequence-view.md       # RF-003 sequence view
 │   ├── rf004-sequence-view.md       # RF-004 sequence view
 │   ├── rf005-sequence-view.md       # RF-005 sequence view
+│   ├── rf006-sequence-view.md       # RF-006 sequence view (Entrega 3)
+│   ├── rf007-sequence-view.md       # RF-007 sequence view (Entrega 3)
 │   │
 │   └── diagrams/
 │       ├── components.puml          # Functional/component model
@@ -73,11 +75,15 @@
 │       ├── entities.puml            # Entity model
 │       ├── networks.puml            # Network model
 │       ├── components_second_iteration.puml   # Entrega 2 component model
+│       ├── components_third_iteration.puml    # Entrega 3 component model
 │       ├── deployment_second_iteration.puml   # Entrega 2 deployment model
+│       ├── deployment_third_iteration.puml    # Entrega 3 deployment model
 │       ├── networks_second_iteration.puml     # Entrega 2 network model
 │       ├── rf003-sequence.puml      # RF-003 sequence diagram
 │       ├── rf004-sequence.puml      # RF-004 sequence diagram
-│       └── rf005-sequence.puml      # RF-005 sequence diagram
+│       ├── rf005-sequence.puml      # RF-005 sequence diagram
+│       ├── rf006-sequence.puml      # RF-006 sequence diagram (Entrega 3)
+│       └── rf007-sequence.puml      # RF-007 sequence diagram (Entrega 3)
 │
 └── README.md                         # Project overview + deployment instructions
 ```
@@ -129,8 +135,10 @@ order encoded in their file names.
 ### Ingress
 
 `k8s_entrega2/zz-ingress.yml` (resource name `microservices-ingress`)
-provides a single public entry point routing by path prefix to all eight
-services. It is applied unchanged in both environments:
+provides a single public entry point routing by path prefix to all the
+services (the eight of the previous deliveries, plus the TrueNative service
+added in Entrega 3 under `/native`). It is the same resource in both
+environments:
 
 - **Local Minikube**: uses `ingressClassName: nginx` with the NGINX ingress addon
 - **AWS EKS production**: the same `ingressClassName: nginx`. The course project required an AWS ALB, but the AWS Academy academic accounts do not allow ALB, so the NGINX ingress controller is used in both environments (see the [Deployment View](./deployment-view.md#ingress-deployment-details))

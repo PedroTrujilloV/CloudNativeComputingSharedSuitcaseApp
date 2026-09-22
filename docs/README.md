@@ -49,6 +49,12 @@ By using this project, you will find:
     - [Requirement RF-005](#requirement-rf-005)
       - [RF-005 Sequence View](#rf-005-sequence-view)
       - [RF-005 Solution Pattern](#rf-005-solution-pattern)
+    - [Requirement RF-006](#requirement-rf-006)
+      - [RF-006 Sequence View](#rf-006-sequence-view)
+      - [RF-006 Solution Pattern](#rf-006-solution-pattern)
+    - [Requirement RF-007](#requirement-rf-007)
+      - [RF-007 Sequence View](#rf-007-sequence-view)
+      - [RF-007 Solution Pattern](#rf-007-solution-pattern)
   - [Development and Deployment Technologies](#development-and-deployment-technologies)
     - [Postman](#postman)
     - [Git](#git)
@@ -111,16 +117,20 @@ plus the entity relationship diagram.
 ### Functional View
 
 The [Functional View](./functional-view.md) presents the runtime components
-(the five microservices, the three orchestrators, the shared database, and
-the Ingress) with their responsibilities, design considerations, and
-integrations.
+(the five microservices, the three orchestrators, the shared database, the
+Ingress, and the Entrega 3 components: the credit cards service, the card
+worker, the card verification queue, the user verification callback,
+TrueNative, and the SNS email topics) with their responsibilities, design
+considerations, and integrations.
 
 ### Deployment View
 
 The [Deployment View](./deployment-view.md) describes how the components are
 deployed in both environments: local Minikube and AWS EKS, including the
-network model, the Ingress deployment details, and the Terraform
-infrastructure deployment.
+network model, the Ingress deployment details, the Terraform
+infrastructure deployment, and the Entrega 3 deployment model (the new
+runtimes, data stores, messaging, and email mechanism on the same single
+entry point).
 
 ### Development View
 
@@ -173,6 +183,30 @@ Query a post with its route and its offers sorted by score (null safe) as a sing
 #### RF-005 Solution Pattern
 
 [RF-005 Solution Pattern](./solution-patterns.md#rf-005)
+
+### Requirement RF-006
+
+Store a credit card and notify its owner of the verification result as a single client facing request, with the verification performed asynchronously.
+
+#### RF-006 Sequence View
+
+[RF-006 Sequence View](./rf006-sequence-view.md)
+
+#### RF-006 Solution Pattern
+
+[RF-006 Solution Pattern](./solution-patterns.md#rf-006)
+
+### Requirement RF-007
+
+Verify the identity of a user when the user is created, so that only verified users can use the platform, with the result delivered by an asynchronous callback.
+
+#### RF-007 Sequence View
+
+[RF-007 Sequence View](./rf007-sequence-view.md)
+
+#### RF-007 Solution Pattern
+
+[RF-007 Solution Pattern](./solution-patterns.md#rf-007)
 
 ## Development and Deployment Technologies
 
@@ -704,10 +738,11 @@ RF-003, read the post back), are automated in `scripts/local-verify.sh`.
 #### Ingress configurations (two environments)
 
 The single Ingress resource is defined in `k8s_entrega2/zz-ingress.yml`
-(name: `microservices-ingress`). The same resource is applied unchanged in
-both environments: the course project required an AWS ALB for the cloud
+(name: `microservices-ingress`). The same resource is used in both
+environments: the course project required an AWS ALB for the cloud
 deployment, but the AWS Academy academic accounts do not allow ALB, so the
-NGINX ingress controller is used everywhere.
+NGINX ingress controller is used everywhere. The rule set grows with each
+delivery; the current rules include the `/native` prefix added in Entrega 3.
 
 ##### Local Minikube - NGINX Ingress
 
@@ -778,11 +813,11 @@ docker run --rm -e PLANTUML_LIMIT_SIZE=8192 -v "$(pwd)/docs/diagrams:/workspace"
 ## Terraform
 
 The project uses Terraform to provision the cloud infrastructure (S3 state
-bucket, RDS PostgreSQL, ECR repositories, EKS cluster) on AWS Academy. The
-active stacks, in `config.yaml` `tf_stacks` deploy order, are `1_database`,
-`2_registry`, and `eks`; `0_storage` is commented out (see the
-[Terraform Deployment Guide](./terraform-deployment.md) for the storage
-bootstrap prerequisite).
+bucket, RDS PostgreSQL, ECR repositories, EKS cluster, and the SNS email
+topics) on AWS Academy. The active stacks, in `config.yaml` `tf_stacks`
+deploy order, are `1_database`, `2_registry`, `eks`, and `4_sns`; `0_storage`
+is commented out (see the [Terraform Deployment Guide](./terraform-deployment.md)
+for the storage bootstrap prerequisite).
 
 ### Terraform Deployment Guide
 

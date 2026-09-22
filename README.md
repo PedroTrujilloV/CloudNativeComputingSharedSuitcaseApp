@@ -4,24 +4,29 @@
 
 ```text
 .
-├── users_app/                # User management application
-├── routes_app/               # Route management application
-├── posts_app/                # Post management application
-├── offers_app/               # Offer management application
-├── scores_app/               # Scores management application (Entrega 2)
-├── rf003_create_post_app/    # RF-003 orchestrator (Entrega 2)
-├── rf004_create_offer_app/   # RF-004 orchestrator (Entrega 2)
-├── rf005_query_post_app/     # RF-005 orchestrator (Entrega 2)
-├── k8s/                      # Legacy Entrega 1 Kubernetes manifests
-├── k8s_entrega2/             # Entrega 2 Kubernetes manifests (secrets, apps, ingress, local-only shared DB)
-├── terraform/                # Terraform stacks and environments for the AWS infrastructure
-├── scripts/                  # Local deploy/verify scripts, Postman collections, Terraform helper scripts
-├── plantuml-generator/       # Docker image that renders the PlantUML diagrams
-├── styles/                   # Vale style packages for the documentation checks
-├── docs/                     # Technical documentation as code
-│   └── diagrams/             # PlantUML diagrams (entities, components, deployment, networks, sequences)
-├── config.yaml               # Team and application configuration
-└── README.md                 # This file
+├── users_app/                     # User management application (modified in Entrega 3: no token generation or verification while the user is not VERIFICADO)
+├── routes_app/                    # Route management application
+├── posts_app/                     # Post management application
+├── offers_app/                    # Offer management application
+├── scores_app/                    # Scores management application (Entrega 2)
+├── rf003_create_post_app/         # RF-003 orchestrator (Entrega 2)
+├── rf004_create_offer_app/        # RF-004 orchestrator (Entrega 2)
+├── rf005_query_post_app/          # RF-005 orchestrator (Entrega 2)
+├── credit_cards_app/              # Credit cards service (Entrega 3, RF-006): owns the CreditCard entity and its DynamoDB table
+├── card_worker/                   # Card verification worker (Entrega 3, RF-006): AWS Lambda function that polls TrueNative until the card reaches a terminal state
+├── user_verification_callback/    # User verification callback (Entrega 3, RF-007): receives the TrueNative identity verification callback and updates the user status
+├── k8s/                           # Legacy Entrega 1 Kubernetes manifests
+├── k8s_entrega2/                  # Kubernetes manifests (secrets, apps, ingress, local-only shared DB); in Entrega 3 it gains the manifests for the three new workloads and the updated Ingress
+├── terraform/                     # Terraform stacks and environments for the AWS infrastructure
+│   ├── stacks/                    # One folder per stack: 0_storage, 1_database, 2_registry, eks, 4_sns, and the remaining Entrega 3 stacks (for example 5_lambda)
+│   └── environments/              # One folder per environment (dev, student1), each holding the tfvars of every stack
+├── scripts/                       # Local deploy/verify scripts, Postman collections, Terraform helper scripts
+├── plantuml-generator/            # Docker image that renders the PlantUML diagrams
+├── styles/                        # Vale style packages for the documentation checks
+├── docs/                          # Technical documentation as code
+│   └── diagrams/                  # PlantUML diagrams (entities, components, deployment, networks, sequences)
+├── config.yaml                    # Team and application configuration
+└── README.md                      # This file
 ```
 
 More detailed information in the [Development View](./docs/development-view.md)
@@ -34,16 +39,25 @@ and [Technical Documentation](./docs/README.md)
 
 # Deployment Guide
 
-This guide describes, step by step, how to fully deploy the project: the applications (users, posts, routes, offers, scores), their databases, the generation of the technical documentation (PlantUML diagrams), and the final validation on Minikube.
+This guide describes, step by step, how to fully deploy the project: the applications (the five microservices, the three orchestrators, and the new components of Entrega 3), their databases, the generation of the technical documentation (PlantUML diagrams), the cloud deployment with the provided pipelines, and the final validation on Minikube.
 
 ## Table of Contents
 
 - [Deployment Guide](#deployment-guide)
   - [Table of Contents](#table-of-contents)
   - [Delivery 2 (Entrega 2) Changes](#delivery-2-entrega-2-changes)
+  - [Delivery 3 (Entrega 3) Changes](#delivery-3-entrega-3-changes)
   - [Terraform Stacks](#terraform-stacks)
   - [How to run](#how-to-run)
   - [Cloud Deployment (AWS)](#cloud-deployment-aws)
+  - [Cloud Deployment Procedure (Entrega 3)](#cloud-deployment-procedure-entrega-3)
+    - [Prerequisites for the Cloud Deployment](#prerequisites-for-the-cloud-deployment)
+    - [Step 1: Verify the config.yaml and the GitHub secret](#step-1-verify-the-configyaml-and-the-github-secret)
+    - [Step 2: Run the Deploy Pipeline](#step-2-run-the-deploy-pipeline)
+    - [Step 3: Confirm the SNS Email Subscriptions (manual step)](#step-3-confirm-the-sns-email-subscriptions-manual-step)
+    - [Step 4: Run the Evaluator Pipeline](#step-4-run-the-evaluator-pipeline)
+    - [Step 5: Run the Destroy Pipeline](#step-5-run-the-destroy-pipeline)
+  - [Testing Toolchain](#testing-toolchain)
   - [Prerequisites](#prerequisites)
   - [Step 1: Clone the Repository](#step-1-clone-the-repository)
   - [Step 2: Verify config.yaml](#step-2-verify-configyaml)
@@ -55,10 +69,7 @@ This guide describes, step by step, how to fully deploy the project: the applica
   - [Step 8: Deploy the Kubernetes Manifests](#step-8-deploy-the-kubernetes-manifests)
   - [Step 9: Verify the Deployment](#step-9-verify-the-deployment)
   - [Step 10: Access the Applications via Ingress](#step-10-access-the-applications-via-ingress)
-  - [Step 10: Access the Applications via Ingress](#step-10-access-the-applications-via-ingress)
   - [Step 11: Test the API with Postman](#step-11-test-the-api-with-postman)
-  - [Step 12: Run the Validation Pipelines](#step-12-run-the-validation-pipelines)
-  - [Step 13: Cleanup (Optional)](#step-13-cleanup-optional)
   - [Step 12: Run the Validation Pipelines](#step-12-run-the-validation-pipelines)
   - [Step 13: Cleanup (Optional)](#step-13-cleanup-optional)
   - [Troubleshooting Common Issues](#troubleshooting-common-issues)
@@ -88,19 +99,76 @@ the `scores_app` build/run steps follow the same pattern as the other
 applications (see its [README](./scores_app/README.md)).
 
 
+## Delivery 3 (Entrega 3) Changes
+
+Entrega 3 adds the two new requirements (RF-006, credit card registration, and
+RF-007, user identity verification) on top of the same cluster and the same
+single external host. The new units are:
+
+* **`credit_cards_app`:** the CreditCardsApp service, a new microservice that
+  owns the CreditCard entity in its own DynamoDB table and exposes the
+  `/credit-cards/*` API. The initial response returns in less than 5 seconds:
+  the synchronous path validates the request, calls TrueNative to tokenize the
+  card, stores the card with status `POR_VERIFICAR`, and publishes the
+  verification event to the queue.
+* **`card_worker`:** an AWS Lambda function (packaged as a container image)
+  that consumes the card verification queue (SQS), polls TrueNative until the
+  card reaches a terminal state (`APROBADA` or `RECHAZADA`), updates the card
+  status and `updatedAt`, and publishes the email notification to the SNS
+  topics.
+* **`user_verification_callback`:** a FastAPI service that receives the
+  asynchronous callback from TrueNative with the identity verification result,
+  validates the SHA256 integrity token, updates the user status
+  (`VERIFICADO` or `NO_VERIFICADO`) through the `users_app` API, and
+  publishes the email notification to the SNS topics.
+* **`truenative`:** the provided external platform
+  (`ghcr.io/misw-4301-desarrollo-apps-en-la-nube/true-native:2.0.0`), deployed
+  on the cluster with the `k8s_entrega3/k8s-true-native-deployment.yml`
+  manifest and reachable at `/native/*`. It is configured with the mandatory
+  `SECRET_TOKEN` environment variable, which the manifest reads from the
+  `truenative-secret` Kubernetes Secret; the secret value is substituted at
+  apply time in both environments and is never committed in plaintext. The
+  manifest declares no `namespace`, so the workload runs in the default
+  namespace, as the course requires.
+* **Serverless resources:** the DynamoDB table, the SQS queue, the SNS email
+  topics, and the Lambda function are provisioned by the new Terraform stacks
+  (for example `4_sns` and `5_lambda`), which are appended to the `tf_stacks`
+  list of `config.yaml`.
+* **`users_app` modification:** limited to the rule defined by the project
+  document: the service no longer generates or verifies tokens while the user
+  is not in the `VERIFICADO` status, so a user in the `POR_VERIFICAR` or
+  `NO_VERIFICADO` status cannot authenticate or use the platform. It also
+  exposes the internal endpoint that `user_verification_callback` uses to
+  update the user status after the identity verification finishes.
+* **Email mechanism:** the notifications use the SNS email topics. The
+  subscription address comes from the `EMAIL_TO_NOTIFY` key of the
+  `secrets-pipeline-native-map` secret in AWS Secrets Manager, which the
+  deploy pipeline populates from the GitHub secret of the same name. This
+  mechanism requires a manual confirmation step after the deploy (see the
+  [Cloud Deployment Procedure (Entrega 3)](#cloud-deployment-procedure-entrega-3)).
+
+The full description of every new component (responsibilities, design
+considerations, and integrations) is in the [Functional View](./docs/functional-view.md)
+and the [Deployment View](./docs/deployment-view.md).
+
+
 ## Terraform Stacks
 
-The infrastructure is defined as four Terraform stacks under `terraform/stacks/`, each with its own stack-specific README:
+The infrastructure is defined as Terraform stacks under `terraform/stacks/`, each with its own stack-specific README:
 
 | Stack | Description | Stack README |
 |-------|-------------|--------------|
 | **0_storage** | S3 bucket for shared object storage across all apps | [terraform/stacks/0_storage/README.md](./terraform/stacks/0_storage/README.md) |
 | **1_database** | Shared PostgreSQL RDS instance + Secrets Manager | [terraform/stacks/1_database/README.md](./terraform/stacks/1_database/README.md) |
-| **2_registry** | ECR repositories for Docker images (8 repos) | [terraform/stacks/2_registry/README.md](./terraform/stacks/2_registry/README.md) |
+| **2_registry** | ECR repositories for Docker images | [terraform/stacks/2_registry/README.md](./terraform/stacks/2_registry/README.md) |
 | **eks** | EKS cluster + managed node groups for workloads | [terraform/stacks/eks/README.md](./terraform/stacks/eks/README.md) |
+| **4_sns** | SNS email topics + email subscriptions for RF-006 and RF-007 | [terraform/stacks/4_sns/README.md](./terraform/stacks/4_sns/README.md) |
+
+The remaining Entrega 3 serverless resources (the DynamoDB table of the credit cards, the SQS queue of the card verification events, and the Lambda worker) are provisioned by additional stacks that follow the same numbered naming convention and the same folder rule (both `terraform/stacks/<name>/` and `terraform/environments/<environment>/<name>/` must exist), for example `5_lambda` for the worker and its queue.
 
 The `config.yaml` `tf_stacks` list defines the deploy order used by the
-`ci_entrega2_deploy.yml` pipeline: `1_database` → `2_registry` → `eks`
+`ci_entrega2_deploy.yml` pipeline: `1_database` → `2_registry` → `eks` →
+`4_sns`, followed by the remaining Entrega 3 stacks in their numbered order
 (`0_storage` is commented out in `config.yaml`; see
 [Terraform Cloud Infrastructure](./docs/terraform-deployment.md) for the
 storage bootstrap prerequisite and why it is not part of the pipeline order).
@@ -126,15 +194,23 @@ The cloud deployment is driven by the `ci_entrega2_deploy.yml` pipeline
 or `tutor`). It reads `config.yaml` and performs the following steps in order:
 
 1. **Terraform apply** for each stack in the `tf_stacks` list, in list order
-   (`1_database` → `2_registry` → `eks`). Each stack uses the
+   (`1_database` → `2_registry` → `eks` → `4_sns`). Each stack uses the
    `terraform/environments/<environment>/<stack>/` tfvars and stores its state
    in the shared S3 bucket (see `backend.tfvars`).
 2. **Docker image build and push**: one image per entry in the `apps:` list
-   (the five microservices plus the three orchestrators), pushed to the ECR
-   repositories created by the `2_registry` stack.
-3. **Kubernetes manifests apply**: the `k8s_entrega2/` manifests are applied
-   to the EKS cluster in alphabetical file name order (00 secrets, 20 apps,
-   zz ingress last).
+   (the five microservices, the three orchestrators, and, in Entrega 3, the
+   credit cards service, the card verification worker, and the user
+   verification callback), pushed to the ECR repositories created by the
+   `2_registry` stack.
+3. **Kubernetes manifests apply**: the `k8s_entrega2/` and `k8s_entrega3/`
+   manifests are applied to the EKS cluster in alphabetical file name order
+   (00 secrets, 20 apps, zz ingress last), including the new workloads of
+   Entrega 3 and the TrueNative deployment
+   (`k8s_entrega3/k8s-true-native-deployment.yml`). The `SECRET_TOKEN` that
+   the TrueNative manifest references is exported by the pipeline from the
+   `secret_token` output of the `eks` stack (see the Terraform Stacks
+   section), so the envsubst step of the pipeline resolves it before the
+   manifests reach the cluster.
 
 Database model: all five data owning applications share a single RDS
 PostgreSQL instance (the `1_database` stack). Data isolation is enforced at
@@ -165,6 +241,83 @@ Notes:
 * For the full stack by stack guide, variable tables, and verification steps,
   see the [Terraform Deployment Guide](./docs/terraform-deployment.md).
 
+## Cloud Deployment Procedure (Entrega 3)
+
+The cloud validation of the delivery runs the provided pipelines in this exact
+order, without modifying them, from the **Actions** tab of the repository:
+
+1. `ci_entrega2_deploy.yml` (Entrega 2 - Deploy)
+2. the manual email confirmation step (it applies to this solution, see Step 3)
+3. `ci_evaluador_entrega3.yml` (Entrega 3 - Evaluador Implementación)
+4. `ci_entrega2_destroy.yml` (Entrega 2 - Destroy)
+
+### Prerequisites for the Cloud Deployment
+
+* The GitHub secret `EMAIL_TO_NOTIFY` is configured in the selected environment.
+  The deploy pipeline copies it, together with the rest of the environment
+  secrets, to the AWS Secrets Manager secret `secrets-pipeline-native-map`,
+  which the Terraform stacks read to create the email subscriptions.
+* `config.yaml` lists every component in the `tf_stacks`, `k8s_manifests`,
+  and `apps` keys, including the new stacks and applications of Entrega 3.
+* No credentials, secret values, or email addresses are stored in this
+  repository: they live in the GitHub secrets and in AWS Secrets Manager.
+
+### Step 1: Verify the config.yaml and the GitHub secret
+
+Confirm that `config.yaml` lists all the applications and stacks, and that the
+`EMAIL_TO_NOTIFY` secret exists in the environment that will be used for the
+deployment. Without that secret the deploy pipeline cannot populate
+`secrets-pipeline-native-map` and the email mechanism cannot be configured.
+
+### Step 2: Run the Deploy Pipeline
+
+Run the **Entrega 2 - Deploy** workflow (`ci_entrega2_deploy.yml`) from the
+Actions tab, select the environment (for example `student1`), and wait until
+the run finishes successfully. The pipeline applies the Terraform stacks in
+`tf_stacks` order (including the new stacks that create the DynamoDB table,
+the SQS queue, the SNS topics, the email subscriptions, and the Lambda
+function), builds and pushes the images, and applies the Kubernetes manifests,
+including the new workloads and the TrueNative deployment.
+
+### Step 3: Confirm the SNS Email Subscriptions (manual step)
+
+**This step applies to this solution.** The email mechanism is Amazon SNS:
+during the deploy, the new Terraform stack creates the SNS topics and the
+email subscriptions, and Amazon SNS sends a subscription confirmation email to
+the address stored in `EMAIL_TO_NOTIFY`. Before running the evaluator, open
+that inbox and click the confirmation link of each subscription. While a
+subscription is not confirmed, SNS discards the messages and the evaluator
+pipeline will fail on the email validation. The address is never written in
+this repository; it comes from the secret.
+
+### Step 4: Run the Evaluator Pipeline
+
+Run the **Entrega 3 - Evaluador Implementación** workflow
+(`ci_evaluador_entrega3.yml`) with the same environment. It executes the API
+tests of RF-006 (credit cards) and RF-007 (user identity verification) against
+the deployed system, including the validation of the email notification. If
+the deploy pipeline did not finish successfully, this pipeline will fail
+because there is no functional infrastructure to test.
+
+### Step 5: Run the Destroy Pipeline
+
+Only after the evaluator has finished (or after the evaluation is complete),
+run the **Entrega 2 - Destroy** workflow (`ci_entrega2_destroy.yml`). It
+destroys the infrastructure in the reverse order of the deploy. While it has
+not been run, the cluster, the databases, and the serverless resources keep
+consuming the AWS Academy budget.
+
+## Testing Toolchain
+
+All the applications are written in Python with FastAPI and Poetry, and they
+are tested with pytest. Each application runs its unit tests with the
+`unittest` target of the root `makefile` (pytest with pytest-cov and a minimum
+coverage of 70% enforced with `--cov-fail-under=70`). The unit testing pipeline
+`ci_evaluador_unit.yml` (Evaluador Pruebas Unitarias) runs on every push and
+pull request to `main` and validates the coverage of the `users_app` job. No
+language other than Python and no testing framework other than pytest are used
+in this project, so no additional toolchain section is required.
+
 ## Prerequisites
 
 Before starting, make sure you have installed:
@@ -194,7 +347,7 @@ cd <repository-name>
 
 ## Step 2: Verify config.yaml
 
-Confirm that the `config.yaml` file at the repository root has been properly completed: team name, members, board link, documentation link, and the data (`folder`, `image_name`, `image_tag`, `authors`) for each of the five applications (`users_app`, `posts_app`, `routes_app`, `offers_app`, `scores_app`) and the three orchestrators.
+Confirm that the `config.yaml` file at the repository root has been properly completed: team name, members, board link, documentation link, the `tf_stacks` list (including the new Entrega 3 stacks), and the data (`folder`, `image_name`, `image_tag`, `authors`) for each of the five applications (`users_app`, `posts_app`, `routes_app`, `offers_app`, `scores_app`), the three orchestrators, and the three new components of Entrega 3 (`credit_cards_app`, `card_worker`, `user_verification_callback`).
 
 ```bash
 cat config.yaml
@@ -224,6 +377,8 @@ ls docs/diagrams/*.png
 # Should show at least: entities.png, components.png, deployment.png, networks.png
 # plus the Entrega 2 diagrams: components/deployment/networks_second_iteration.png
 # and rf003/rf004/rf005-sequence.png
+# and the Entrega 3 diagrams: components_third_iteration.png, deployment_third_iteration.png,
+# rf006-sequence.png, and rf007-sequence.png
 ```
 
 ## Step 4: Run Each Application Locally (Optional, for Development)
@@ -238,6 +393,11 @@ For development and quick testing before containerization, each application can 
 * [RF-003 README](./rf003_create_post_app/README.md)
 * [RF-004 README](./rf004_create_offer_app/README.md)
 * [RF-005 README](./rf005_query_post_app/README.md)
+* The new components of Entrega 3 (`credit_cards_app`, `card_worker`, and
+  `user_verification_callback`) follow the same pattern: each folder contains
+  its own `README.md` with the exact command and the required environment
+  variables. `credit_cards_app` uses its own DynamoDB table instead of the
+  shared PostgreSQL instance.
 
 Each application requires a PostgreSQL database available on port `5432` (you can start it independently with Docker during development).
 
@@ -284,10 +444,16 @@ docker build -t rf005-query-post-app:v0.0.0 .
 cd ..
 ```
 
-Verify that all eight images were built successfully:
+In Entrega 3 the same step applies to the new components: the
+`credit_cards_app` and `user_verification_callback` images are built from
+their own folders, and the `card_worker` image is the container image of the
+Lambda function. TrueNative is not built locally: it uses the provided image
+`ghcr.io/misw-4301-desarrollo-apps-en-la-nube/true-native:2.0.0`.
+
+Verify that all the images were built successfully:
 
 ```bash
-docker images | grep -E "users|posts|routes|offers|scores|rf003|rf004|rf005"
+docker images | grep -E "users|posts|routes|offers|scores|rf003|rf004|rf005|credit|card|verification"
 ```
 
 ## Step 6: Start Minikube
@@ -326,7 +492,7 @@ minikube image ls | grep -E "users|posts|routes|offers|scores|rf003|rf004|rf005"
 
 ## Step 8: Deploy the Kubernetes Manifests
 
-Apply the declarative manifests located in `k8s_entrega2/` (Deployments, Services, Secrets, and Ingress) in the same order `scripts/local-deploy.sh` uses: the local secrets and the shared Postgres instance first (both in `k8s_entrega2/local-only/`), then the eight application Deployments and Services, and the Ingress last:
+Apply the declarative manifests located in `k8s_entrega2/` (Deployments, Services, Secrets, and Ingress) in the same order `scripts/local-deploy.sh` uses: the local secrets and the shared Postgres instance first (both in `k8s_entrega2/local-only/`), then the application Deployments and Services (the eight of the previous deliveries plus the new workloads of Entrega 3), and the Ingress last:
 
 ```bash
 kubectl apply -f k8s_entrega2/local-only/00-secrets.yml
@@ -343,6 +509,18 @@ kubectl apply -f k8s_entrega2/zz-ingress.yml
 ```
 
 > **Note:** The `k8s_entrega2/local-only/` folder contains the local secrets and the shared Postgres instance used only for local Minikube testing. It is excluded from `config.yaml k8s_manifests` so the AWS EKS pipeline never applies it (production uses real RDS and the ESO populated secrets).
+>
+> **Note:** TrueNative is not built locally: it uses the provided image. `scripts/local-deploy.sh` reads the `SECRET_TOKEN` value from `truenative_secrets/dev.env`, a file that lives OUTSIDE the repository, one level above the repo root (that is, `<parent-of-repo>/truenative_secrets/dev.env`), and is therefore never committed. A fresh developer creates that folder once and writes a single line in it: `SECRET_TOKEN=<any random string>`. The script then substitutes the value into the `truenative-secret` Kubernetes Secret and applies `k8s_entrega3/k8s-true-native-deployment.yml` before the Ingress. The manifest declares only the mandatory `SECRET_TOKEN`; the optional testing variables (`SUCCESS_RATE`, `MAX_WEBHOOK_DELAY`, and `MAX_POLL_DELAY`) keep their platform defaults in the cluster, and the evaluation collection reconfigures them at runtime through `POST /native/env`, so no dev override is needed in the manifest.
+
+The new workloads of Entrega 3 are added to `k8s_entrega2/` with the same
+numbered naming convention (for example `28-credit-cards-app.yml` and
+`29-user-verification-callback.yml`), so they are applied in order by the
+pipeline. The TrueNative deployment lives in
+`k8s_entrega3/k8s-true-native-deployment.yml`: it is the only manifest of the
+`k8s_entrega3` folder, and it is applied by `scripts/local-deploy.sh` after
+the `k8s_entrega2/` workloads and before the Ingress, with the `SECRET_TOKEN`
+value substituted from the out of repo `truenative_secrets/dev.env` file
+(see the note below).
 
 ## Step 9: Verify the Deployment
 
@@ -377,6 +555,7 @@ Example health checks:
 curl http://localhost:80/users/ping
 curl http://localhost:80/posts/ping
 curl http://localhost:80/rf003/ping
+curl http://localhost:80/native/ping
 # Each should respond: pong
 ```
 
@@ -395,6 +574,11 @@ For Entrega 2 (cloud deployment via Terraform stacks and ECR images):
 
 * `Entrega 2 - Deploy` (`ci_entrega2_deploy.yml`)
 * `Entrega 2 - Destroy` (`ci_entrega2_destroy.yml`, manual and destructive)
+
+For Entrega 3, run the full sequence documented in the
+[Cloud Deployment Procedure (Entrega 3)](#cloud-deployment-procedure-entrega-3):
+the deploy pipeline, the manual SNS confirmation step, the evaluator pipeline
+(`ci_evaluador_entrega3.yml`), and the destroy pipeline, in that order.
 
 Confirm that they finish successfully (passed ✅) before continuing.
 
@@ -423,6 +607,10 @@ minikube stop
 minikube delete
 ```
 
+For the cloud infrastructure, the cleanup is the `ci_entrega2_destroy.yml`
+pipeline (see the [Cloud Deployment Procedure (Entrega 3)](#cloud-deployment-procedure-entrega-3),
+Step 5), not the `kubectl` commands above.
+
 ## Troubleshooting Common Issues
 
 | Problem                                                  | Possible Cause                                                                      | Solution                                                                                                              |
@@ -435,5 +623,7 @@ minikube delete
 | PlantUML diagrams are not generated                      | Incorrect mount path or `.puml` syntax errors                                       | Verify that `docs/diagrams/` contains the `.puml` files and review the output from the `plantuml-generator` container |
 | `minikube service --url` does not respond                | The Service is not correctly linked to the Deployment, or the pod is not `Running`  | Run `kubectl get endpoints <service-name>`                                                                            |
 | An application can access another application's database | Network Policy is incorrectly configured or was not applied (legacy `k8s/` deployment) | Run `kubectl get networkpolicies` and compare against `networks.puml`                                                 |
+| No email arrives after a verification process             | The SNS subscription is not confirmed, or the `EMAIL_TO_NOTIFY` secret is missing in the environment                                   | Confirm the subscription (see the Cloud Deployment Procedure, Step 3) and verify that the deploy pipeline populated `secrets-pipeline-native-map` |
+| A local plan of `4_sns` reports the pipeline secret missing | The `secrets-pipeline-native-map` secret only exists after a deploy pipeline run, so a local plan on a fresh account finds no secret | Expected on a fresh account: create the secret once beforehand with the AWS CLI so the local plan can read it (see the `4_sns` stack README); the deploy pipeline overwrites the secret on every run |
 
 ````

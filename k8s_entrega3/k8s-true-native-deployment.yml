@@ -1,0 +1,54 @@
+# The truenative-secret holds SECRET_TOKEN. The value is filled at apply
+# time by envsubst in both environments (see the pipeline deploy-k8s step
+# for AWS and scripts/local-deploy.sh for local Minikube); the token itself
+# never appears in this repository.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: truenative-secret
+type: Opaque
+stringData:
+  SECRET_TOKEN: "${SECRET_TOKEN}"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: truenative
+  labels:
+    app: truenative
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: truenative
+  template:
+    metadata:
+      labels:
+        app: truenative
+    spec:
+      containers:
+        - name: truenative
+          image: ghcr.io/misw-4301-desarrollo-apps-en-la-nube/true-native:2.0.0
+          ports:
+            - containerPort: 3000
+          imagePullPolicy: Always
+          env:
+            - name: SECRET_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: truenative-secret
+                  key: SECRET_TOKEN
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: truenative-service
+spec:
+  type: ClusterIP
+  selector:
+    app: truenative
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 3000

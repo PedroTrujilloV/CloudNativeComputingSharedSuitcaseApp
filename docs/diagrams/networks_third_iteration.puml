@@ -1,0 +1,143 @@
+@startuml networks_third_iteration
+
+cloud "Internet" as Internet
+
+frame "AWS VPC (us-east-1)" {
+
+  frame "EKS - Node (default namespace)" {
+
+    package "microservices-ingress (single external host)" <<Ingress>> {
+
+      component "ingress" as Ingress <<NGINX / Ingress>>
+
+      component "users-app-service" as UsersAppService <<ClusterIP>>
+      node "pod" as UsersAppPod {
+        component "users-app" as UsersAppContainer <<container>> {
+          component "users_app" as UsersApp
+        }
+      }
+
+      component "posts-app-service" as PostsAppService <<ClusterIP>>
+      node "pod" as PostsAppPod {
+        component "posts-app" as PostsAppContainer <<container>> {
+          component "posts_app" as PostsApp
+        }
+      }
+
+      component "offers-app-service" as OffersAppService <<ClusterIP>>
+      node "pod" as OffersAppPod {
+        component "offers-app" as OffersAppContainer <<container>> {
+          component "offers_app" as OffersApp
+        }
+      }
+
+      component "routes-app-service" as RoutesAppService <<ClusterIP>>
+      node "pod" as RoutesAppPod {
+        component "routes-app" as RoutesAppContainer <<container>> {
+          component "routes_app" as RoutesApp
+        }
+      }
+
+      component "scores-app-service" as ScoresAppService <<ClusterIP>>
+      node "pod" as ScoresAppPod {
+        component "scores-app" as ScoresAppContainer <<container>> {
+          component "scores_app" as ScoresApp
+        }
+      }
+
+      component "rf003-create-post-service" as RF003Service <<ClusterIP>>
+      node "pod" as RF003Pod {
+        component "rf003-create-post-app" as RF003Container <<container>> {
+          component "rf003_create_post_app" as RF003App
+        }
+      }
+
+      component "rf004-create-offer-service" as RF004Service <<ClusterIP>>
+      node "pod" as RF004Pod {
+        component "rf004-create-offer-app" as RF004Container <<container>> {
+          component "rf004_create_offer_app" as RF004App
+        }
+      }
+
+      component "rf005-query-post-service" as RF005Service <<ClusterIP>>
+      node "pod" as RF005Pod {
+        component "rf005-query-post-app" as RF005Container <<container>> {
+          component "rf005_query_post_app" as RF005App
+        }
+      }
+
+      component "credit-cards-service" as CreditCardsService <<ClusterIP>>
+      node "pod" as CreditCardsPod {
+        component "credit-cards-app" as CreditCardsContainer <<container>> {
+          component "credit_cards_app" as CreditCardsApp
+        }
+      }
+
+      component "truenative-service" as TrueNativeService <<ClusterIP>>
+      node "pod" as TrueNativePod {
+        component "truenative-app" as TrueNativeContainer <<container>> {
+          component "truenative" as TrueNative
+        }
+      }
+
+      ' ---------- Ingress routing: single external host, one rule per prefix ----------
+      Ingress --> UsersAppService : "Port: 8000\n/users/* (unchanged)"
+      Ingress --> PostsAppService : "Port: 8000\n/posts/*"
+      Ingress --> OffersAppService : "Port: 8000\n/offers/*"
+      Ingress --> RoutesAppService : "Port: 8000\n/routes/*"
+      Ingress --> ScoresAppService : "Port: 8000\n/scores/*"
+      Ingress --> RF003Service : "Port: 8000\n/rf003/*"
+      Ingress --> RF004Service : "Port: 8000\n/rf004/*"
+      Ingress --> RF005Service : "Port: 8000\n/rf005/*"
+      Ingress --> CreditCardsService : "Port: 80\n/credit-cards/* (Entrega 3)"
+      Ingress --> TrueNativeService : "Port: 80\n/native/* (Entrega 3)"
+
+      ' ---------- Services to pods ----------
+      UsersAppService --> UsersAppPod : "Port: 8000"
+      PostsAppService --> PostsAppPod : "Port: 8000"
+      OffersAppService --> OffersAppPod : "Port: 8000"
+      RoutesAppService --> RoutesAppPod : "Port: 8000"
+      ScoresAppService --> ScoresAppPod : "Port: 8000"
+      RF003Service --> RF003Pod : "Port: 8000"
+      RF004Service --> RF004Pod : "Port: 8000"
+      RF005Service --> RF005Pod : "Port: 8000"
+      CreditCardsService --> CreditCardsPod : "Port: 80"
+      TrueNativeService --> TrueNativePod : "Port: 80"
+    }
+  }
+
+  database "RDS\n(shared_db)" as SharedDb
+
+  UsersAppPod --> SharedDb : "Port: 5432"
+  PostsAppPod --> SharedDb : "Port: 5432"
+  OffersAppPod --> SharedDb : "Port: 5432"
+  RoutesAppPod --> SharedDb : "Port: 5432"
+  ScoresAppPod --> SharedDb : "Port: 5432"
+
+  note bottom of SharedDb
+  Single RDS instance, reached over
+  the VPC network, not a K8s pod,
+  so it is outside the cluster's
+  NetworkPolicy boundary.
+  Isolation between apps' data is
+  enforced at the PostgreSQL level
+  (per-app schema + role/grants),
+  not by NetworkPolicy.
+  end note
+}
+
+Internet ..> Ingress : "HTTP\nsingle host, one request per requirement"
+
+note bottom of Ingress
+  Single external host (TASK-002 decision).
+  Rules: k8s_entrega2/zz-ingress.yml
+  (microservices-ingress).
+  /users/* is unchanged; the new
+  prefixes are /credit-cards/* and
+  /native/*. The callback prefix
+  /users/verify/callback is added by
+  the callback task (longest prefix
+  wins, so /users/* stays unchanged).
+end note
+
+@enduml

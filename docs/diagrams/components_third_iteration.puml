@@ -1,0 +1,89 @@
+@startuml components_third_iteration
+
+actor "User" as User
+actor "Administrator" as Admin
+
+component "ingress" as Ingress <<Ingress>>
+
+frame "env" {
+
+  component "rf003_create_post_app" as RF003App <<component>>
+  component "rf004_create_offer_app" as RF004App <<component>>
+  component "rf005_query_post_app" as RF005App <<component>>
+
+  component "users_app" as UsersApp <<component>>
+  component "posts_app" as PostsApp <<component>>
+  component "offers_app" as OffersApp <<component>>
+  component "routes_app" as RoutesApp <<component>>
+  component "scores_app" as ScoresApp <<component>>
+
+  component "credit_cards_app" as CreditCardsApp <<component>>
+  component "card_worker" as CardWorker <<Lambda>>
+  queue "card_verification_queue" as CardQueue <<SQS>>
+  component "user_verification_callback" as UserVerificationCallback <<component>>
+  database "shared_db" as SharedDb
+  database "credit_cards_db" as CreditCardsDb <<DynamoDB>>
+
+  UsersApp --> SharedDb
+  PostsApp --> SharedDb
+  OffersApp --> SharedDb
+  RoutesApp --> SharedDb
+  ScoresApp --> SharedDb
+
+  RF003App --> UsersApp
+  RF003App --> RoutesApp
+  RF003App --> PostsApp
+
+  RF004App --> UsersApp
+  RF004App --> PostsApp
+  RF004App --> RoutesApp
+  RF004App --> OffersApp
+  RF004App --> ScoresApp
+
+  RF005App --> UsersApp
+  RF005App --> PostsApp
+  RF005App --> RoutesApp
+  RF005App --> OffersApp
+  RF005App --> ScoresApp
+
+  CreditCardsApp --> CreditCardsDb
+  CardWorker --> CreditCardsDb
+
+  CreditCardsApp ..> CardQueue : "send verification event (async)"
+  CardQueue ..> CardWorker : "poll for events (async)"
+}
+
+cloud "AWS Services" {
+  component "sns_topics" as SnsTopics <<SNS>>
+}
+
+frame "External provider (deployed in cluster)" {
+  component "truenative" as TrueNative <<component>>
+}
+
+User ..> Ingress
+Admin ..> Ingress
+
+Ingress --> RF003App : "/rf003/posts"
+Ingress --> RF004App : "/rf004/posts/{id}/offers"
+Ingress --> RF005App : "/rf005/posts/{id}"
+Ingress --> UsersApp : "/users/*"
+Ingress --> PostsApp : "/posts/*"
+Ingress --> OffersApp : "/offers/*"
+Ingress --> RoutesApp : "/routes/*"
+Ingress --> CreditCardsApp : "/credit-cards/*"
+Ingress --> UserVerificationCallback : "/users/verify/callback (public)"
+Ingress --> TrueNative : "/native/*"
+
+UsersApp --> TrueNative : "POST /native/verify (sync)"
+TrueNative ..> UserVerificationCallback : "PATCH callback (async)"
+
+CreditCardsApp --> UsersApp : "validate bearer token (sync)"
+CreditCardsApp --> TrueNative : "POST /native/cards (sync)"
+CardWorker --> TrueNative : "GET /native/cards/{ruv} (sync polling)"
+
+UsersApp ..> SnsTopics : "publish user verification result (async)"
+CardWorker ..> SnsTopics : "publish card registration result (async)"
+SnsTopics ..> User : "email notification (async)"
+
+@enduml

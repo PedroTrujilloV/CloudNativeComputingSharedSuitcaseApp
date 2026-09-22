@@ -233,3 +233,4 @@ override.tf.json
 # vale/Google 
 styles
 k8s_temp_deploy
+k8s_temp_local_deploy/

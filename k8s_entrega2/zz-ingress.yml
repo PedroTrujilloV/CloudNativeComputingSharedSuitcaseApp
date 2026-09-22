@@ -112,3 +112,21 @@ spec:
                 name: rf005-query-post-service
                 port:
                   number: 8000
+
+          # True Native App (Entrega 3)
+          - pathType: Prefix
+            path: /native
+            backend:
+              service:
+                name: truenative-service
+                port: 
+                  number: 80
+
+          # Credit Cards App (Entrega 3)
+          - pathType: Prefix
+            path: /credit-cards
+            backend:
+              service:
+                name: credit-cards-service
+                port:
+                  number: 80

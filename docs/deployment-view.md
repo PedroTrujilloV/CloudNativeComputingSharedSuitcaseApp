@@ -7,7 +7,7 @@ This document presents the various diagrams indicating how the components define
 
 The runtime component model (orchestrators, microservices, shared database,
 and Ingress) is documented in the [Functional View](./functional-view.md)
-with the `components.puml` diagram.
+with the `components_third_iteration.puml` diagram.
 
 ## Deployment Model
 
@@ -67,11 +67,152 @@ The following table documents every **new** component introduced in Entrega 2, p
 | **Ingress** (`ingress`) | `Ingress` | Infrastructure (network routing) | Single public entry point for the entire system. Routes incoming HTTP requests by path prefix to the correct backend Service (orchestrators or legacy apps), so the client only ever sees one host and makes one request per requirement. | Not a business component: pure infrastructure. Becomes the single point through which all traffic flows, so its configuration correctness is critical (a routing mistake here breaks the requirement that all 7 endpoint groups be reachable). The course project required an AWS ALB, but the AWS Academy academic accounts do not allow ALB, so the NGINX ingress controller is used in both environments. | Routes to: `users-app-service` (`/users/*`), `posts-app-service` (`/posts/*`), `offers-app-service` (`/offers/*`), `routes-app-service` (`/routes/*`), `rf003-create-post-service` (`/rf003/posts`), `rf004-create-offer-service` (`/rf004/posts/{id}/offers`), `rf005-query-post-service` (`/rf005/posts/{id}`). HTTP only; no business logic. |
 | **Shared database** (`shared_db`) | `SharedDb` | Database | Single managed PostgreSQL instance (AWS RDS) hosting all applications' data. Each application's data is logically isolated (per-app schema and DB role/grants): no cross-app queries or foreign keys, preserving the "each app owns its data" principle despite sharing one physical instance. | Replaces Entrega 1's one-database-per-app model to reduce cloud cost/footprint, as required by the document ("una sola base de datos... que albergará todas las tablas desacopladas"). Isolation between apps' data is enforced at the PostgreSQL level (schema + role grants), not at the network level, since a single RDS instance cannot be split by K8s NetworkPolicy. Introduces a shared operational dependency: if RDS is unavailable, all data-owning apps are affected simultaneously (a trade-off accepted for cost/time reasons). | Read/written by `users_app`, `posts_app`, `offers_app`, `routes_app`, and `scores_app`, each scoped to its own schema via its own database role. Port 5432, PostgreSQL protocol. No orchestrator or client accesses this database directly: always through the owning app's API. |
 
+# New Deployment Model (Entrega 3)
+
+![Deployment View (Entrega 3)](./diagrams/deployment_third_iteration.png "Deployment View (Entrega 3)")
+
+The model above extends the deployment model of the previous section: the
+existing EKS workloads, the shared RDS database, and the single NGINX ingress
+entry point remain unchanged, and the new units of both requirements of
+Entrega 3 are added to the same cluster and to the same single external host.
+All cloud resources live in the `us-east-1` region, and every Kubernetes
+workload uses the default namespace only.
+
+## Single entry point and routing
+
+External traffic keeps entering through the single external host served by the
+NGINX ingress controller (its Service is exposed as a LoadBalancer). The
+Ingress now routes three additional path prefixes on top of the existing
+`/users/*`, `/posts/*`, `/offers/*`, `/routes/*`, and orchestrator routes:
+`/credit-cards/*` reaches the `credit-cards-service` ClusterIP Service, and
+`/native/*` reaches the `truenative-service` ClusterIP Service. The identity
+verification callback published by TrueNative reaches the
+`user-verification-callback-service` ClusterIP Service through the same host,
+so no extra external entry point is introduced.
+
+## Routing decision (TASK-002)
+
+**Decision:** the single external host keeps being the NGINX ingress
+controller (the `microservices-ingress` Ingress resource defined in
+`k8s_entrega2/zz-ingress.yml`), extended with the new path prefixes. No API
+Gateway and no BFF service are introduced.
+
+**Rationale:**
+
+- The project document does not specify a gateway technology, so routing by
+  path prefix on the existing NGINX controller is the choice with the least
+  new surface: the controller, the Ingress resource, and the host already
+  exist in both environments, and the decision reuses them.
+- Every route prefix maps to one independently deployed component (one
+  Deployment and one ClusterIP Service each), so routing stays at the network
+  layer and no business logic is added to the entry point.
+- The client keeps making exactly one HTTP request to one host per
+  requirement: the request enters the single host and the Ingress forwards it
+  by path prefix to the owning component, which coordinates the rest of the
+  flow server side.
+- The existing `/users/*` rule (and every other existing rule) is unchanged;
+  the rule set only grows the `/credit-cards` prefix (this task) and the
+  `/native` prefix (added by the TrueNative deployment task).
+
+The current rule set of the single host is:
+
+| Path prefix | Backend Service | Component |
+|---|---|---|
+| `/users/*` | `users-app-service` | `users_app` (unchanged) |
+| `/posts/*` | `posts-app-service` | `posts_app` |
+| `/offers/*` | `offers-app-service` | `offers_app` |
+| `/routes/*` | `routes-app-service` | `routes_app` |
+| `/scores/*` | `scores-app-service` | `scores_app` |
+| `/rf003/*` | `rf003-create-post-service` | `rf003_create_post_app` |
+| `/rf004/*` | `rf004-create-offer-service` | `rf004_create_offer_app` |
+| `/rf005/*` | `rf005-query-post-service` | `rf005_query_post_app` |
+| `/credit-cards/*` | `credit-cards-service` | `credit_cards_app` (Entrega 3) |
+| `/native/*` | `truenative-service` | `truenative` (Entrega 3) |
+
+One planned rule is documented here for completeness: the identity
+verification callback will be routed to `user-verification-callback-service`
+through the same host under the more specific prefix
+`/users/verify/callback` (its rule is added by the callback task). NGINX
+matches the longest prefix first, so that rule will not alter the existing
+`/users/*` behavior.
+
+The routing rules are also captured graphically in the deployment view
+(`deployment_third_iteration.puml`) and in the new network model
+(`networks_third_iteration.puml`, section "New Network Model" below).
+
+## Runtimes
+
+- `credit_cards_app` runs as a Kubernetes Deployment in the default namespace,
+  with its own pod and ClusterIP Service, exactly like the other web
+  applications.
+- `user_verification_callback` runs as a Kubernetes Deployment in the default
+  namespace, with its own pod and ClusterIP Service. It is the web component
+  that receives the identity verification callback from TrueNative.
+- `true_native` runs as a Kubernetes Deployment in the default namespace using
+  the provided container image `ghcr.io/misw-4301-desarrollo-apps-en-la-nube/true-native:2.0.0`.
+  It is deployed on the cluster (not outside of it), so the callback and the
+  card polling reach it through the cluster network or through the
+  `/native/*` prefix of the single external host.
+- `card_worker` runs as an AWS Lambda function (packaged as a container image)
+  outside the cluster. It is the only non Kubernetes unit of the new
+  requirements, and it exists because the card verification response from
+  TrueNative takes up to 30 seconds while the initial card registration
+  response must stay under 5 seconds: the web component answers first and the
+  function completes the verification afterwards.
+
+## Data stores
+
+- The five legacy data owning applications keep reading and writing the shared
+  RDS PostgreSQL instance (port 5432), each through its own schema and role.
+- `credit_cards_app` owns a dedicated DynamoDB table for the card data,
+  isolated from the shared PostgreSQL instance. `card_worker` is the only
+  other unit allowed to access that table, and it reads and writes it while
+  completing the verification.
+- `user_verification_callback` does not own a data store: it updates the user
+  verification status through the `users_app` API, so the user data stays in
+  the shared RDS instance under the `users_app` schema.
+
+## Messaging and email mechanism
+
+- `card_verification_queue` is an SQS queue that carries the card verification
+  events. `credit_cards_app` sends an event to the queue (asynchronous)
+  immediately after registering the card, and `card_worker` consumes the
+  queue (asynchronous polling), calls TrueNative to complete the verification,
+  updates the DynamoDB table, and publishes the result.
+- The email mechanism is the SNS email notification: the result of the card
+  verification (published by `card_worker`) and the result of the identity
+  verification (published by `user_verification_callback`) are sent to the
+  SNS email topics, which deliver the notification to the user. The recipient
+  address comes from the `EMAIL_TO_NOTIFY` key of the
+  `secrets-pipeline-native-map` secret in AWS Secrets Manager, which the
+  deploy pipeline populates from the GitHub secret of the same name. The
+  deploy pipeline also stores the TrueNative credentials in that same secret,
+  so the infrastructure can read them at deploy time.
+- The web components (`credit_cards_app` and `user_verification_callback`)
+  never run background tasks: all the asynchronous work is delegated to the
+  queue, the Lambda function, and the SNS topics, which keeps the web
+  components within the course restriction on asynchronous execution.
+
+## Infrastructure and manifests
+
+The deploy pipeline (`ci_entrega2_deploy.yml`) deploys everything declared in
+`config.yaml`: it applies the Terraform stacks in `tf_stacks` (the existing
+`1_database`, `2_registry`, and `eks` stacks, plus the stack or stacks that
+provision the new infrastructure: the DynamoDB table, the SQS queue, the SNS
+topics, and the Lambda function), and then applies the Kubernetes manifests in
+`k8s_manifests` (the `k8s_entrega2` directory, extended with the manifests of
+the three new workloads and the updated Ingress). No other deployment mechanism
+is used: the complete model of this section is deployed in a single pipeline
+run.
+
 ## Ingress Deployment Details
 
 The single Ingress resource is defined in `k8s_entrega2/zz-ingress.yml`
-(name: `microservices-ingress`) and is applied unchanged in both
-environments.
+(name: `microservices-ingress`) and is the same resource in both
+environments. The rule set is extended by each delivery: the current rules
+route the prefixes of the legacy apps, the orchestrators, and, since
+Entrega 3, the `/native` prefix to the TrueNative service (the
+`/credit-cards` prefix is added by the credit cards task).
 
 ### Local Minikube - NGINX Ingress
 
@@ -107,7 +248,29 @@ the [README ingress configurations section](./README.md#ingress-configurations-t
 
 ![Deployment View](./diagrams/networks_second_iteration.png "Network View")
 
-## Terraform Infrastructure Deployment
+## New Network Model (Entrega 3)
+
+![Network Model (Entrega 3)](./diagrams/networks_third_iteration.png "Network Model (Entrega 3)")
+
+The network model of Entrega 3 extends the previous one: the same NGINX
+ingress controller stays the only entry point into the cluster, and the new
+units are added as ClusterIP Services inside the same default namespace.
+The single external host now routes the prefixes of the legacy apps, the
+orchestrators, and the two new prefixes of this delivery: `/credit-cards/*`
+to `credit-cards-service` (the `credit_cards_app` Deployment) and
+`/native/*` to `truenative-service` (the `truenative` Deployment). The
+`/users/*` rule keeps its original behavior and backend
+(`users-app-service`, port 8000); the only planned change under `/users` is
+the more specific callback prefix, which the callback task will add and which
+does not alter the existing rule because NGINX matches the longest prefix
+first.
+
+The routing rules shown in the diagram are the rules of the
+`microservices-ingress` Ingress resource in `k8s_entrega2/zz-ingress.yml`.
+The diagram shows the `credit-cards-service` rule even before the
+`credit_cards_app` manifest exists, because the rule is part of this
+decision and the backend Service appears together with the app in its own
+task; until then the rule has no endpoints and the prefix answers 503.
 
 The cloud deployment uses the Terraform stacks under `terraform/stacks/`
 (`0_storage`, `1_database`, `2_registry`, and `eks`) to provision

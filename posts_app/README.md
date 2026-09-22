@@ -165,7 +165,7 @@ curl $(minikube service posts-app-service --url)/posts/ping
 
 On Windows PowerShell, `eval $(minikube docker-env)` is not available; use Minikube's documented PowerShell equivalent (`minikube docker-env | Invoke-Expression`) or run the apply from a Unix environment.
 
-### Network policy — posts-db isolation
+### Network policy: posts-db isolation
 
 A `NetworkPolicy` allows ingress to `posts-db` **only** from pods labeled `app: posts-app`, on TCP port `5432`. Other apps cannot reach `posts_db`.
 
@@ -214,13 +214,13 @@ Expected: allowed query returns `1`; blocked call times out or is refused. If th
 
 ## Current endpoints
 
-- `GET /posts/ping` → `pong` (`200`) — implemented (Issue #1)
-- `POST /posts` → create publication — planned (Issue #3)
-- `GET /posts` → list publications with optional filters — planned (Issue #4)
-- `GET /posts/{id}` → get a publication by ID — planned (Issue #4)
-- `DELETE /posts/{id}` → delete a publication — planned (Issue #4)
-- `GET /posts/count` → count publications — planned (Issue #4)
-- `POST /posts/reset` → reset all publications (testing) — planned (Issue #4)
+- `GET /posts/ping` → `pong` (`200`): implemented (Issue #1)
+- `POST /posts` → create publication: planned (Issue #3)
+- `GET /posts` → list publications with optional filters: planned (Issue #4)
+- `GET /posts/{id}` → get a publication by ID: planned (Issue #4)
+- `DELETE /posts/{id}` → delete a publication: planned (Issue #4)
+- `GET /posts/count` → count publications: planned (Issue #4)
+- `POST /posts/reset` → reset all publications (testing): planned (Issue #4)
 
 ## Domain and persistence (issue #2)
 

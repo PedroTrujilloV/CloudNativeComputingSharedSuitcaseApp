@@ -1,0 +1,109 @@
+@startuml rf007-sequence
+
+title RF-007 - User Identity Verification (with exception flows)
+
+' Legend: solid arrows are synchronous interactions, dashed arrows are asynchronous interactions.
+
+actor "User" as User
+participant "Ingress" as Ingress
+participant "users_app" as Users
+database "RDS\n(users schema)" as UDB
+participant "TrueNative" as TN
+participant "user_verification_callback" as CB
+participant "SNS email topics" as SNS
+participant "User mailbox" as Mail
+
+' ---------- User creation ----------
+User -> Ingress : POST /users\n{username, email, password, ...}
+Ingress -> Users : forward request
+
+alt creation fails validation or duplicate
+  Users --> Ingress : 400 / 412
+  Ingress --> User : 400 / 412
+else user created
+  Users -> UDB : store user\nstatus: POR_VERIFICAR,\ncreatedAt, updatedAt
+  UDB --> Users : ok
+
+  Users -> TN : POST /native/verify\nAuthorization: Bearer <SECRET_TOKEN>\n{user: {email, dni, fullName, phone},\nuserIdentifier, transactionIdentifier,\nuserWebhook: users/verify/callback}
+  note right of Users
+    As many user fields as available
+    are sent: the more data, the
+    higher the verification success
+    probability.
+  end note
+
+  alt TrueNative 400 (missing user object, userIdentifier,\ntransactionIdentifier or webhook, or malformed request)
+    TN --> Users : 400
+    Users -> UDB : mark user NO_VERIFICADO\n(updatedAt = now, UTC)
+    UDB --> Users : ok
+    Users ->> SNS : publish result {status: NO_VERIFICADO,\nRUV: none, user data} (async)
+    Users --> Ingress : 201 {id, createdAt}\nuser is NO_VERIFICADO
+    Ingress --> User : 201
+  else TrueNative 401 or 403 (bad or missing secret token)
+    TN --> Users : 401 / 403
+    Users -> UDB : mark user NO_VERIFICADO\n(updatedAt = now, UTC)
+    UDB --> Users : ok
+    Users ->> SNS : publish result {status: NO_VERIFICADO,\nRUV: none, user data} (async)
+    Users --> Ingress : 201 {id, createdAt}\nuser is NO_VERIFICADO
+    Ingress --> User : 201
+  else TrueNative 409 (a verification for this user\nand transaction is already in progress)
+    TN --> Users : 409
+    Users -> UDB : mark user NO_VERIFICADO\n(updatedAt = now, UTC)
+    UDB --> Users : ok
+    Users ->> SNS : publish result {status: NO_VERIFICADO,\nRUV: none, user data} (async)
+    Users --> Ingress : 201 {id, createdAt}\nuser is NO_VERIFICADO
+    Ingress --> User : 201
+  else TrueNative accepts the request
+    TN --> Users : 201 {RUV, task_status: ACCEPTED}
+    Users -> UDB : store RUV on the user
+    UDB --> Users : ok
+    Users --> Ingress : 201 {id, createdAt}
+    Ingress --> User : 201 {id, createdAt}
+  end
+end
+
+' ---------- Asynchronous callback from TrueNative ----------
+note over TN, CB
+  TrueNative answers the verification in
+  no more than 120 seconds (webhook
+  model). The callback is public and
+  unauthenticated: the SHA256 check is
+  its only protection.
+end note
+
+TN ->> CB : PATCH /users/verify/callback (async)\n{RUV, SCORE, verifyToken, ...}
+
+CB -> CB : verifyToken ==\nsha256(f"{SECRET_TOKEN}:{RUV}:{SCORE}")
+
+alt verifyToken does not match
+  CB -> CB : discard the message\n(no status change is applied)
+  CB --> TN : 200 (receipt only)
+else verifyToken matches
+  CB -> Users : update user by transaction identifier:\nstatus = VERIFICADO when SCORE is greater than 60,\nNO_VERIFICADO when SCORE is 60 or lower\n(updatedAt = now, UTC)
+
+  alt user not found by the transaction identifier
+    Users --> CB : 404
+    CB --> TN : 200 (receipt only)\nmessage is discarded
+  else user updated
+    Users --> CB : 200
+    CB ->> SNS : publish result {status: VERIFICADO or\nNO_VERIFICADO, RUV, user data used\nin the verification} (async)
+    CB --> TN : 200
+  end
+end
+
+SNS ->> Mail : deliver email notification (async)
+Mail ->> User : email with the final status,\nthe RUV, and the user data used\nin the verification (async)
+
+' ---------- Token block while not VERIFICADO ----------
+User -> Ingress : POST /users/auth\n{username, password}
+Ingress -> Users : forward request
+
+alt user status is POR_VERIFICAR or NO_VERIFICADO
+  Users --> Ingress : 404 (no token is generated\nfor a user who is not VERIFICADO)
+  Ingress --> User : 404
+else user status is VERIFICADO
+  Users --> Ingress : 200 {id, token, expireAt}
+  Ingress --> User : 200 {id, token, expireAt}
+end
+
+@enduml

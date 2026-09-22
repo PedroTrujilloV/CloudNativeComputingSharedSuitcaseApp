@@ -2,13 +2,13 @@
 
 ## Overview
 
-This project uses Terraform to provision cloud infrastructure on AWS (Amazon Web Services) in the `us-east-1` region. The infrastructure is organized into the stacks under `terraform/stacks/`: `0_storage`, `1_database`, `2_registry`, and `eks`. The active deployment order is the one declared in `config.yaml` `tf_stacks`: `1_database` → `2_registry` → `eks` (destroy runs in reverse order).
+This project uses Terraform to provision cloud infrastructure on AWS (Amazon Web Services) in the `us-east-1` region. The infrastructure is organized into the stacks under `terraform/stacks/`: `0_storage`, `1_database`, `2_registry`, `eks`, and `4_sns`. The active deployment order is the one declared in `config.yaml` `tf_stacks`: `1_database` → `2_registry` → `eks` → `4_sns` (destroy runs in reverse order).
 
 The `0_storage` stack is commented out in `tf_stacks` because the S3 bucket it creates must exist **before any stack can initialize its S3 state backend**: a stack cannot store its state in a bucket that the same stack is supposed to create. For that reason it is provisioned manually, once, with the custom automation scripts in `scripts/terraform_scripts/` (for example `0_bootstrap_state_bucket.sh`, which creates the bucket directly with the AWS CLI and then the rest of the flow uses it as backend). This bootstrap is only possible in `dev` environments with those custom automation scripts; in the student evaluation workflow ("Entrega 2 Deploy") the state backend bucket already exists in the account, so the pipeline simply runs `1_init_all.sh`, `2_plan_all.sh`, and `3_apply_reviewed.sh` over the active stacks.
 
 The deployment pipeline (`ci_entrega2_deploy.yml`) orchestrates the following steps:
 
-1. Terraform applies each stack in `tf_stacks` order (`1_database` → `2_registry` → `eks`).
+1. Terraform applies each stack in `tf_stacks` order (`1_database` → `2_registry` → `eks` → `4_sns`).
 2. Docker images are built and pushed to Amazon ECR repositories.
 3. Kubernetes manifests are applied to the EKS cluster.
 
@@ -29,12 +29,14 @@ graph TD
     end
     RDS[RDS PostgreSQL\n1_database stack]
     ECR[ECR Repositories\n2_registry stack, one per app]
+    SNS[SNS Email Topics\n4_sns stack, EMAIL_TO_NOTIFY\nfrom the pipeline secret map]
     S3[S3 State Backend Bucket\n0_storage stack, manual bootstrap]
   end
 
   Pipeline --> EKS
   Pipeline --> RDS
   Pipeline --> ECR
+  Pipeline --> SNS
   S3 -.-> |stores terraform.tfstate\nof every stack| TFCode
 
   K8sPods --> RDS
@@ -45,12 +47,13 @@ graph TD
   style EKS fill:#ff9,stroke:#333
   style RDS fill:#9f9,stroke:#333
   style ECR fill:#ff9,stroke:#333
+  style SNS fill:#9ff,stroke:#333
   style S3 fill:#cfc,stroke:#333
 ```
 
 ## Stack Decomposition
 
-The project follows a four-stack decomposition model:
+The project follows a five-stack decomposition model:
 
 | Order | Stack | Components | Purpose |
 |-------|-------|-----------|---------|
@@ -58,6 +61,7 @@ The project follows a four-stack decomposition model:
 | 1 | **1_database** | RDS PostgreSQL instance, Secrets Manager secret (DB credentials), per-app schema and role isolation (`users`, `posts`, `offers`, `routes`, `scores`), `create_app_tables` variable that creates the shared app tables | Provisions the shared database layer with per-app schema/role isolation. |
 | 2 | **2_registry** | 8 ECR repositories (one per app and orchestrator) with tag retention rules | Provides the image registry for all application workloads. |
 | 3 | **eks** | EKS cluster, managed node group, IAM roles (cluster, nodes, pod identity), OIDC provider for IRSA | Provides the container orchestration platform for application workloads. |
+| 4 | **4_sns** | Two SNS topics (card verification and user verification) with one email subscription per topic, endpoint read from the `EMAIL_TO_NOTIFY` key of the `secrets-pipeline-native-map` secret | Provisions the email notification mechanism of RF-006 and RF-007 without hardcoding the address. |
 
 The helper scripts in `scripts/terraform_scripts/` automate the flow over all active stacks: `0_bootstrap_state_bucket.sh` (creates the state backend bucket, manual), `1_init_all.sh`, `2_plan_all.sh`, `3_apply_reviewed.sh`, and `zz_destroy_all.sh` (reverse order).
 
@@ -69,6 +73,7 @@ Each stack includes a detailed README describing its components, variables, outp
 - [1_database Stack README](../terraform/stacks/1_database/README.md)
 - [2_registry Stack README](../terraform/stacks/2_registry/README.md)
 - [eks Stack README](../terraform/stacks/eks/README.md)
+- [4_sns Stack README](../terraform/stacks/4_sns/README.md)
 
 ## Local Deployment (Development Testing)
 
@@ -99,7 +104,7 @@ This step is only possible in `dev` environments with these custom automation sc
 ./scripts/terraform_scripts/3_apply_reviewed.sh
 ```
 
-The scripts iterate over the stacks declared in `config.yaml` `tf_stacks` (`1_database`, `2_registry`, `eks`), using the `backend.tfvars` and `terraform.tfvars` files under `terraform/environments/<environment>/<stack>/`. The apply script pauses for manual review of each plan before applying.
+The scripts iterate over the stacks declared in `config.yaml` `tf_stacks` (`1_database`, `2_registry`, `eks`, `4_sns`), using the `backend.tfvars` and `terraform.tfvars` files under `terraform/environments/<environment>/<stack>/`. The apply script pauses for manual review of each plan before applying.
 
 ### Step 3: Destroy (reverse order)
 
@@ -129,6 +134,14 @@ aws eks update-kubeconfig --name shared-suitcase-cluster --region us-east-1
 
 # Verify EKS cluster connectivity
 kubectl get nodes
+
+# List the SNS email topics
+aws sns list-topics --region us-east-1 \
+  --query 'Topics[?starts_with(TopicName, `grupo33-`)].TopicName'
+
+# List the email subscriptions of a topic
+aws sns list-subscriptions-by-topic \
+  --topic-arn <card-verification-topic-arn> --region us-east-1
 ```
 
 ## Stack Deployment Order
@@ -138,6 +151,7 @@ The stacks are deployed in the order declared in `config.yaml` `tf_stacks`:
 1. **1_database**: shared RDS instance, Secrets Manager secret, and per-app schema/role isolation (no upstream stack dependencies)
 2. **2_registry**: ECR repositories (no upstream stack dependencies)
 3. **eks**: EKS cluster and node group (reads the RDS endpoint and secret ARN from `1_database`, and the ECR repository URIs from `2_registry`)
+4. **4_sns**: SNS email topics and email subscriptions (reads the `EMAIL_TO_NOTIFY` key from the `secrets-pipeline-native-map` secret that the deploy pipeline populates before the apply; for a local plan on a fresh account, create the secret once beforehand with the AWS CLI because only the pipeline creates it, see the `4_sns` stack README; no upstream stack dependencies)
 
 The `0_storage` stack (state backend bucket) is always deployed before any of the above, manually, because it cannot be part of the order: the bucket must exist before any stack can initialize its S3 backend.
 
@@ -146,15 +160,19 @@ The `0_storage` stack (state backend bucket) is always deployed before any of th
 Destroy the stacks in reverse `tf_stacks` order (the `zz_destroy_all.sh` script automates this):
 
 ```bash
-# 1. Destroy eks (EKS cluster, node group)
-cd terraform/stacks/eks && terraform destroy \
+# 1. Destroy 4_sns (SNS topics and email subscriptions)
+cd terraform/stacks/4_sns && terraform destroy \
+  -var-file=../../environments/student1/4_sns/terraform.tfvars
+
+# 2. Destroy eks (EKS cluster, node group)
+cd ../eks && terraform destroy \
   -var-file=../../environments/student1/eks/terraform.tfvars
 
-# 2. Destroy 2_registry (ECR repositories)
+# 3. Destroy 2_registry (ECR repositories)
 cd ../2_registry && terraform destroy \
   -var-file=../../environments/student1/2_registry/terraform.tfvars
 
-# 3. Destroy 1_database (RDS instance, Secrets Manager secret)
+# 4. Destroy 1_database (RDS instance, Secrets Manager secret)
 cd ../1_database && terraform destroy \
   -var-file=../../environments/student1/1_database/terraform.tfvars
 ```

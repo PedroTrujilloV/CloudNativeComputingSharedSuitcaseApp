@@ -5,7 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [Unreleased ]
+
+### Changed
+
+- Made the `4_sns` stack pass the local `1_init_all.sh` and `2_plan_all.sh`
+  helper scripts (PR #132, T003):
+  - Renamed the SNS topics to a flat form (`grupo33-card-verification-notifications`
+    and `grupo33-user-verification-notifications`) in the `student1` and `dev`
+    environment tfvars, because an SNS topic name cannot contain a slash.
+  - Documented the local plan prerequisite of the `secrets-pipeline-native-map`
+    secret in `terraform/stacks/4_sns/locals.tf` and the `4_sns` stack README:
+    only the deploy pipeline creates the secret, so a local plan on a fresh
+    account needs it created once beforehand with the AWS CLI. The Terraform
+    configuration keeps the required data source pattern and the pipeline
+    behavior is unchanged: the `EMAIL_TO_NOTIFY` value is read at plan time
+    and never stored in state.
+  - Updated `docs/terraform-deployment.md` and the root `README.md`
+    troubleshooting table to document the naming rule and the local plan
+    prerequisite.
+- Extended `scripts/terraform_scripts/0_bootstrap_state_bucket.sh` to
+  create the `secrets-pipeline-native-map` secret once from the out-of-repo
+  `truenative_secrets/dev.env` file when it does not exist, following the
+  same dev.env convention as `scripts/local-deploy.sh` (PR #132, T003).
+  Removed a stray `continue` statement that was not inside a loop and
+  could abort the script under `set -e`.
+
+- Fixed old vale error in legacy `*_app/README.md` files [3a8d808f9acda83d4dae7014946f7d5209e29cc9]:
+  - `offers_app/README.md`
+  - `posts_app/README.md`
+  - `routes_app/README.md`
+  - `users_app/README.md`
+
+
+## [Entrega 2]
 
 ### Changed
 

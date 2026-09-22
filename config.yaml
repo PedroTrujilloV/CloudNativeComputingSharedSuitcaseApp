@@ -59,6 +59,9 @@ tf_stacks:
   - 2_registry
   # [eks] Shared EKS cluster + per-app namespace + per-app service account + per-app role binding.
   - eks
+  # [4_sns] SNS topics + email subscriptions for RF-006 and RF-007. Reads the
+  # EMAIL_TO_NOTIFY secret from the pipeline secret map (never hardcoded).
+  - 4_sns
 # Ambiente student1 cuyos backend.tfvars/terraform.tfvars
 # se usan como base para el ambiente `tutor`.
 default_env: student1
@@ -88,8 +91,20 @@ default_env: student1
 k8s_manifests:
   # - k8s
   - k8s_entrega2
-# Imágenes que construye y sube a ECR el pipeline ci_entrega2_deploy.yml
-# antes de aplicar k8s_manifests. Una entrada por cada aplicación desplegada.
+  - k8s_entrega3
+# Opcional. Misma forma que tf_stacks (nombres de stack, no rutas), pero
+# estos se aplican DESPUÉS de que los manifiestos de k8s_manifests ya estén
+# desplegados, en vez de antes. Úselo para stacks que necesiten algo que
+# solo existe una vez que k8s ya está desplegado (ej. el host del load
+# balancer de ingress-nginx). Ver detalle en los recursos de la entrega.
+# Mientras no haya stacks post-k8s, la lista debe permanecer ausente o
+# vacía: el pipeline valida que cada nombre exista como carpeta en
+# terraform/stacks/ y un placeholder de texto haría fallar la corrida.
+post_k8s_stacks: []
+
+# Imágenes que construye y sube a ECR el pipeline antes de aplicar
+# k8s_manifests. Aplica tanto para componentes contenedorizados como para
+# funciones Lambda empaquetadas como imagen de contenedor.
 apps:
   - users_app:
       folder: users_app

@@ -1,0 +1,129 @@
+@startuml rf006-sequence
+
+title RF-006 - Store and Verify a Credit Card (with exception flows)
+
+' Legend: solid arrows are synchronous interactions, dashed arrows are asynchronous interactions.
+
+actor "User" as User
+participant "Ingress" as Ingress
+participant "credit_cards_app" as CC
+participant "users_app" as Users
+participant "TrueNative" as TN
+database "DynamoDB\n(credit_cards)" as CCDB
+participant "SQS\n(card_verification_queue)" as Queue
+participant "card_worker\n(Lambda)" as Worker
+participant "SNS email topics" as SNS
+participant "User mailbox" as Mail
+
+User -> Ingress : POST /credit-cards\nAuthorization: Bearer <token>\n{cardNumber, cvv, expirationDate,\ncardHolderName}
+Ingress -> CC : forward request
+
+' ---------- Authentication ----------
+CC -> Users : GET /users/me\nAuthorization: Bearer <token>
+
+alt token missing
+  CC --> Ingress : 403
+  Ingress --> User : 403
+else token invalid or expired
+  Users --> CC : 401
+  CC --> Ingress : 401
+  Ingress --> User : 401
+else token valid
+  Users --> CC : 200 {id, username, email, ...}
+
+  ' ---------- Validation ----------
+  CC -> CC : validate card fields\n(format, expiration, holder name)
+
+  alt a field is missing, empty or malformed
+    CC --> Ingress : 400
+    Ingress --> User : 400
+  else card is already expired
+    CC --> Ingress : 412
+    Ingress --> User : 412
+  else fields are valid
+    CC -> CCDB : check for a duplicate card\n(same user, same last four digits)
+
+    alt the user already stored this card
+      CC --> Ingress : 409
+      Ingress --> User : 409
+    else no duplicate
+
+      ' ---------- TrueNative tokenization ----------
+      CC -> TN : POST /native/cards\nAuthorization: Bearer <SECRET_TOKEN>\n{card: {cardNumber, cvv, ...},\ntransactionIdentifier}
+      note right of CC
+        cardNumber and cvv are sent to
+        TrueNative in this call only.
+        They are never written to the
+        database and never logged.
+      end note
+
+      alt TrueNative 400 (malformed request)
+        TN --> CC : 400
+        CC --> Ingress : 502 (integration error)\nnothing is stored
+        Ingress --> User : 502
+      else TrueNative 401 or 403 (bad or missing secret token)
+        TN --> CC : 401 / 403
+        CC --> Ingress : 502 (integration error)\nnothing is stored
+        Ingress --> User : 502
+      else TrueNative 409 (a verification for this card is already in progress)
+        TN --> CC : 409
+        CC --> Ingress : 502 (integration error)\nnothing is stored
+        Ingress --> User : 502
+      else TrueNative accepts the card
+        TN --> CC : 201 {RUV, token (256 chars),\ncreatedAt}
+        note right of TN
+          The verification itself is still
+          pending inside TrueNative.
+          The token was generated, so the
+          card can be stored.
+        end note
+
+        CC -> CCDB : PUT card {id, userId,\ntoken, lastFourDigits, ruv,\nissuer, status: POR_VERIFICAR,\ncreatedAt, updatedAt}
+        CCDB --> CC : ok
+
+        CC ->> Queue : verification event {cardId, ruv} (async)
+        CC --> Ingress : 201 {id, userId, createdAt}\n(within 5 seconds)
+        Ingress --> User : 201 {id, userId, createdAt}
+      end
+    end
+  end
+end
+
+' ---------- Asynchronous verification (worker) ----------
+Queue ->> Worker : deliver verification event (async)
+
+Worker -> TN : GET /native/cards/{ruv}\nAuthorization: Bearer <SECRET_TOKEN>
+
+loop while TrueNative answers 202 (still processing)
+  TN --> Worker : 202 (verification in progress)
+  Worker -> Worker : wait and retry (bounded attempts)
+  Worker -> TN : GET /native/cards/{ruv}
+end
+
+alt TrueNative answers 200 with status APROBADA
+  TN --> Worker : 200 {RUV, status: APROBADA}
+  Worker -> CCDB : update card status: APROBADA,\nupdatedAt = now (UTC)
+  CCDB --> Worker : ok
+  Worker ->> SNS : publish card result {status: APROBADA,\nRUV, card data as stored} (async)
+else TrueNative answers 200 with status RECHAZADA
+  TN --> Worker : 200 {RUV, status: RECHAZADA}
+  Worker -> CCDB : update card status: RECHAZADA,\nupdatedAt = now (UTC)
+  CCDB --> Worker : ok
+  Worker ->> SNS : publish card result {status: RECHAZADA,\nRUV, card data as stored} (async)
+else the bounded attempts are exhausted (no terminal state)
+  TN --> Worker : 202 (still processing)
+  note right of Worker
+    Team decision (fallback): the event is
+    redelivered by the queue, so the card
+    stays POR_VERIFICAR and is retried.
+    After the maximum retries the event is
+    moved to the dead letter queue and the
+    card remains POR_VERIFICAR.
+  end note
+  Worker ->> SNS : publish card result {status: POR_VERIFICAR,\nRUV, card data as stored} (async)
+end
+
+SNS ->> Mail : deliver email notification (async)
+Mail ->> User : email with the process result,\nthe basic card data as stored,\nand the RUV (async)
+
+@enduml

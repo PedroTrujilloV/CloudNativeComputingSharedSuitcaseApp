@@ -9,16 +9,16 @@ Offers microservice for the Shared Suitcase delivery platform. It exposes the Of
 
 Runtime dependencies (installed via `poetry install`):
 
-- FastAPI — API framework
-- SQLAlchemy — ORM and persistence
-- Uvicorn — ASGI server
-- psycopg (binary) — PostgreSQL driver
+- FastAPI: API framework
+- SQLAlchemy: ORM and persistence
+- Uvicorn: ASGI server
+- psycopg (binary): PostgreSQL driver
 
 Development dependencies (managed in the `dev` dependency group):
 
-- httpx — HTTP test client
-- pytest — test runner
-- pytest-cov — coverage reporting
+- httpx: HTTP test client
+- pytest: test runner
+- pytest-cov: coverage reporting
 
 Postman API verification requires Node.js with `npx` available to run `newman`.
 
@@ -46,7 +46,7 @@ Postman API verification requires Node.js with `npx` available to run `newman`.
 | `DB_PORT` | PostgreSQL port | `5432` |
 | `DB_NAME` | Database name | `offers_db` |
 | `DB_USER` | Database user | `offers_user` |
-| `DB_PASSWORD` | Database password | _(empty)_ — requires `trust` auth in `pg_hba.conf` |
+| `DB_PASSWORD` | Database password | _(empty)_; requires `trust` auth in `pg_hba.conf` |
 | `DATABASE_URL` | Overrides all `DB_*` settings when set | _(unset)_ |
 
 No secrets are hardcoded in source. Provide credentials through environment variables.
@@ -109,8 +109,8 @@ Responses:
 | Code | Body |
 |---|---|
 | `201` | `{"id", "userId", "createdAt"}` |
-| `400` | A field is missing or malformed (e.g. description > 140 chars, more than 2 decimals) |
-| `412` | A value is out of the expected range (e.g. invalid size, negative offer) |
+| `400` | A field is missing or malformed (for example, description > 140 chars, more than 2 decimals) |
+| `412` | A value is out of the expected range (for example, invalid size, negative offer) |
 
 ### List and filter offers
 
@@ -282,10 +282,10 @@ eval $(minikube docker-env -u)
 
 The manifest contains four resources:
 
-1. **offers-app Deployment** — FastAPI app with liveness/readiness probes at `/offers/ping`, resource limits (500m CPU, 256Mi memory)
-2. **offers-app-service (NodePort 30003)** — External access to the app
-3. **offers-db Deployment** — PostgreSQL 16 with ephemeral `emptyDir` storage, liveness/readiness probes via `pg_isready`
-4. **offers-db-service (ClusterIP)** — Internal-only database access
+1. **offers-app Deployment**: FastAPI app with liveness/readiness probes at `/offers/ping`, resource limits (500m CPU, 256Mi memory)
+2. **offers-app-service (NodePort 30003)**: External access to the app
+3. **offers-db Deployment**: PostgreSQL 16 with ephemeral `emptyDir` storage, liveness/readiness probes via `pg_isready`
+4. **offers-db-service (ClusterIP)**: Internal-only database access
 
 All database credentials are passed via environment variables (no secrets hardcoded).
 
@@ -344,11 +344,11 @@ minikube stop
 
 **Note:** `emptyDir` is ephemeral: data survives container restarts but is deleted when the DB pod is deleted.
 
-## Network Policy — offers-db Isolation
+## Network Policy: offers-db Isolation
 
 A Kubernetes `NetworkPolicy` enforces that **only `offers-app` pods can connect to `offers-db` on port 5432**. All other ingress traffic to `offers-db` is denied.
 
-#### Prerequisites — Calico CNI
+#### Prerequisites: Calico CNI
 
 Minikube's default CNI (Kindnet) does **not** enforce NetworkPolicies. You must create the cluster with Calico from the start:
 
@@ -419,7 +419,7 @@ spec:
 
 
 
-#### Verification — Allowed connections
+#### Verification: Allowed connections
 
 Verify allowed connection (offers-app -> offers-db)
 
@@ -437,7 +437,7 @@ Expected output:
 (1 row)
 ```
 
-#### Verification — Blocked connections
+#### Verification: Blocked connections
 
 Verify blocked connection from unauthorized pod
 
@@ -511,7 +511,7 @@ To validate PostgreSQL connectivity, run integration tests against a real Postgr
 
 1. Start a PostgreSQL container (see the Docker section above).
 2. Launch the app with `DB_DRIVER=postgresql` and `DATABASE_URL=postgresql+psycopg://offers_user:offers_pass@localhost:5432/offers_db`.
-3. Hit `GET /offers/ping` — it should return `pong` with HTTP 200.
+3. Hit `GET /offers/ping`; it should return `pong` with HTTP 200.
 
 ## Manual Verification
 

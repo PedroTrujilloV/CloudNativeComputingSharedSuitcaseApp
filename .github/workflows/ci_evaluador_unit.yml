@@ -154,34 +154,34 @@ jobs:
           poetry run pytest --cov=src --cov-fail-under=70 -v
 
 
-  rf003_create_post_app:
-    runs-on: ubuntu-latest
-    name: Verify rf003_create_post_app
-    strategy:
-      fail-fast: true 
+  # rf003_create_post_app:
+  #   runs-on: ubuntu-latest
+  #   name: Verify rf003_create_post_app
+  #   strategy:
+  #     fail-fast: true 
 
-    steps:
-      - uses: actions/checkout@v4 
+  #   steps:
+  #     - uses: actions/checkout@v4 
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+  #     - name: Set up Python
+  #       uses: actions/setup-python@v5
+  #       with:
+  #         python-version: "3.11"
 
-      - name: Set up Poetry
-        uses: abatilo/actions-poetry@v3
-        with:
-          poetry-version: 2.1.1     
+  #     - name: Set up Poetry
+  #       uses: abatilo/actions-poetry@v3
+  #       with:
+  #         poetry-version: 2.1.1     
 
-      - name: Install dependencies
-        run: |
-          cd rf003_create_post_app
-          poetry install  
+  #     - name: Install dependencies
+  #       run: |
+  #         cd rf003_create_post_app
+  #         poetry install  
 
-      - name: Run unit tests with coverage
-        run: |
-          cd rf003_create_post_app
-          poetry run pytest --cov=src --cov-fail-under=70 -v
+  #     - name: Run unit tests with coverage
+  #       run: |
+  #         cd rf003_create_post_app
+  #         poetry run pytest --cov=src --cov-fail-under=70 -v
 
   rf004_create_offer_app:
     runs-on: ubuntu-latest

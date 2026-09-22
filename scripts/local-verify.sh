@@ -107,7 +107,8 @@ echo "==> [1/5] Checking pods, services and ingress"
 
 for pod in shared-db \
   users-app posts-app offers-app routes-app scores-app \
-  rf003-create-post-app rf004-create-offer-app rf005-query-post-app; do
+  rf003-create-post-app rf004-create-offer-app rf005-query-post-app \
+  truenative; do
   status="$(kubectl get pod -l app="${pod}" -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo missing)"
   if [ "$status" = "Running" ]; then
     pass "pod ${pod} is Running"
@@ -119,6 +120,7 @@ done
 for svc in users-app-service posts-app-service offers-app-service \
   routes-app-service scores-app-service rf003-create-post-service \
   rf004-create-offer-service rf005-query-post-service \
+  truenative-service \
   shared-db-service; do
   if kubectl get service "$svc" >/dev/null 2>&1; then
     pass "service ${svc} exists"
@@ -149,7 +151,8 @@ fi
 # (embedded in section 1 output above)
 for svc in users-app-service posts-app-service offers-app-service \
   routes-app-service scores-app-service rf003-create-post-service \
-  rf004-create-offer-service rf005-query-post-service; do
+  rf004-create-offer-service rf005-query-post-service \
+  truenative-service; do
   svc_type="$(kubectl get service "$svc" -o jsonpath='{.spec.type}' 2>/dev/null)"
   if [ "$svc_type" = "ClusterIP" ]; then
     pass "service ${svc} type is ClusterIP"
@@ -208,6 +211,17 @@ check_ingress_ping scores /scores/ping
 check_ingress_ping rf003  /rf003/ping
 check_ingress_ping rf004  /rf004/ping
 check_ingress_ping rf005  /rf005/ping
+check_ingress_ping native /native/ping
+
+# TrueNative body check: the acceptance criterion requires the ping
+# response body to be exactly "pong" (a 200 with a different body would
+# mean the route answers but the container is not the right one).
+NATIVE_PING_BODY="$(curl -s --max-time 10 "${INGRESS}/native/ping" 2>/dev/null)"
+if [ "$NATIVE_PING_BODY" = "pong" ]; then
+  pass "GET ${INGRESS}/native/ping body is 'pong'"
+else
+  fail "GET ${INGRESS}/native/ping body is '${NATIVE_PING_BODY}' (expected 'pong')"
+fi
 
 # ------------------------------------------------------------
 # 3. Functional smoke test through the Ingress

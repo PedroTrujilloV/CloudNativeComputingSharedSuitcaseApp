@@ -162,18 +162,18 @@ eval $(minikube docker-env -u)
 | File | Purpose |
 |---|-|
 | `k8s/routes-app.yaml` | All resources: app Deployment, app Service, DB Deployment, DB Service |
-| `k8s/routes-network-policy.yaml` | Network isolation rules — only routes-app can reach routes-db |
+| `k8s/routes-network-policy.yaml` | Network isolation rules: only routes-app can reach routes-db |
 
 The manifest contains four resources:
 
-1. **routes-app Deployment** — FastAPI app with liveness/readiness probes at `/routes/ping`, resource limits (500m CPU, 256Mi memory)
-2. **routes-app-service (NodePort 30002)** — External access to the app
-3. **routes-db Deployment** — PostgreSQL 16 with ephemeral `emptyDir` storage, liveness/readiness probes via `pg_isready`
-4. **routes-db-service (ClusterIP)** — Internal-only database access
+1. **routes-app Deployment**: FastAPI app with liveness/readiness probes at `/routes/ping`, resource limits (500m CPU, 256Mi memory)
+2. **routes-app-service (NodePort 30002)**: External access to the app
+3. **routes-db Deployment**: PostgreSQL 16 with ephemeral `emptyDir` storage, liveness/readiness probes via `pg_isready`
+4. **routes-db-service (ClusterIP)**: Internal-only database access
 
 All database credentials are passed via environment variables (no secrets hardcoded).
 
-## Network Policy — routes-db Isolation
+## Network Policy: routes-db Isolation
 
 A Kubernetes `NetworkPolicy` enforces that **only `routes-app` pods can connect to `routes-db` on port 5432**. All other ingress traffic to `routes-db` is denied.
 
@@ -415,11 +415,11 @@ Creates a new route (trayecto) for a flight journey.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `flightId` | string | Yes | Flight identifier (e.g., "AA001", "937") |
+| `flightId` | string | Yes | Flight identifier (for example, AA001 or 937) |
 | `sourceAirportCode` | string | Yes | Origin airport IATA code (3 uppercase letters) |
-| `sourceCountry` | string | Yes | Country of origin (e.g., "Colombia") |
+| `sourceCountry` | string | Yes | Country of origin (for example, Colombia) |
 | `destinyAirportCode` | string | Yes | Destination airport IATA code (3 uppercase letters) |
-| `destinyCountry` | string | Yes | Destination country name (e.g., "United Kingdom") |
+| `destinyCountry` | string | Yes | Destination country name (for example, United Kingdom) |
 | `bagCost` | integer | Yes | Cost of shipping a suitcase (non-negative integer) |
 | `plannedStartDate` | string (ISO datetime) | Yes | Journey start date in ISO format (UTC timezone) |
 | `plannedEndDate` | string (ISO datetime) | Yes | Journey end date in ISO format (UTC timezone) |
@@ -436,7 +436,7 @@ Creates a new route (trayecto) for a flight journey.
 | `412` | Invalid dates (past or end ≤ start) | `{"msg": "Las fechas del trayecto no son válidas"}` |
 
 **Validation precedence:**
-1. Pydantic validates all required fields — invalid or missing fields return **400**.
+1. Pydantic validates all required fields; invalid or missing fields return **400**.
 2. Duplicate `flightId` check returns **412** with `{"msg": "..."}` (not nested under `detail`).
 3. Date validity (both in future, end > start) returns **412** with `{"msg": "Las fechas del trayecto no son válidas"}` (not nested under `detail`).
 
@@ -444,14 +444,14 @@ Creates a new route (trayecto) for a flight journey.
 
 1. **Required fields:** All 8 fields must be present.
 2. **flightId:** Non-empty string; must be unique across all routes.
-3. **Airport codes:** Exactly 3 uppercase letters (e.g., "BOG", "JFK", "LGW").
+3. **Airport codes:** Exactly 3 uppercase letters (for example, BOG, JFK, LGW).
 4. **bagCost:** Non-negative integer (≥ 0).
 5. **Date handling:**
    - Accepts ISO 8601 UTC datetimes with `+00:00` or `Z` suffix.
    - Both `plannedStartDate` and `plannedEndDate` must be in the **future**.
    - `plannedEndDate` must be strictly **after** `plannedStartDate`.
    - Past dates or end ≤ start return **412** with `{"detail": {"msg": "Las fechas del trayecto no son válidas"}}`.
-6. **Response `createdAt`** is ISO 8601 UTC (e.g., `2026-08-15T03:01:15.103+00:00`).
+6. **Response `createdAt`** is ISO 8601 UTC (for example, `2026-08-15T03:01:15.103+00:00`).
 
 ### Coverage
 
@@ -613,7 +613,7 @@ Expected response: `404` with an empty body.
 
 ---
 
-## DELETE /routes/{id} — Delete a Route
+## DELETE /routes/{{id}}: Delete a Route
 
 Deletes a route by its UUID.
 
@@ -648,7 +648,7 @@ Expected response: First call → `200` with `{"msg": "el trayecto fue eliminado
 
 ---
 
-## GET /routes/count — Count Routes
+## GET /routes/count: Count Routes
 
 Returns the total number of routes stored in the database.
 
@@ -675,7 +675,7 @@ Expected response: `200` with `{"count": <number>}` where `<number>` reflects ro
 
 ---
 
-## POST /routes/reset — Reset All Routes
+## POST /routes/reset: Reset All Routes
 
 Deletes all route data from the database.
 

@@ -1,0 +1,185 @@
+@startuml deployment_third_iteration
+
+actor "User" as User
+
+frame "AWS (us-east-1)" {
+
+  cloud "AWS services (serverless)" {
+    component "card_worker" as CardWorker <<Lambda>>
+    queue "card_verification_queue" as CardQueue <<SQS>>
+    component "sns_topics" as SnsTopics <<SNS>>
+  }
+
+  frame "EKS (default namespace)" {
+
+    ' ---------- Single entry point (NGINX ingress controller) ----------
+    component "ingress\n(NGINX controller, LoadBalancer)" as Ingress <<Ingress>>
+
+    ' ---------- Services (Orchestration apps) ----------
+    component "rf003-create-post-service" as RF003Service <<Service>>
+    component "rf004-create-offer-service" as RF004Service <<Service>>
+    component "rf005-query-post-service" as RF005Service <<Service>>
+
+    ' ---------- Services (Apps) ----------
+    component "users-app-service" as UsersAppService <<Service>>
+    component "posts-app-service" as PostsAppService <<Service>>
+    component "offers-app-service" as OffersAppService <<Service>>
+    component "routes-app-service" as RoutesAppService <<Service>>
+    component "scores-app-service" as ScoresAppService <<Service>>
+
+    ' ---------- Services (Entrega 3) ----------
+    component "credit-cards-service" as CreditCardsService <<Service>>
+    component "user-verification-callback-service" as CallbackService <<Service>>
+    component "truenative-service" as TrueNativeService <<Service>>
+
+    ' ---------- Pods (Orchestration apps) ----------
+    node "pod" as RF003Pod {
+      component "rf003-create-post-app" as RF003Container <<container>> {
+        component "rf003_create_post_app" as RF003App
+      }
+    }
+
+    node "pod" as RF004Pod {
+      component "rf004-create-offer-app" as RF004Container <<container>> {
+        component "rf004_create_offer_app" as RF004App
+      }
+    }
+
+    node "pod" as RF005Pod {
+      component "rf005-query-post-app" as RF005Container <<container>> {
+        component "rf005_query_post_app" as RF005App
+      }
+    }
+
+    ' ---------- Pods (Apps) ----------
+    node "pod" as UsersAppPod {
+      component "users-app" as UsersAppContainer <<container>> {
+        component "users_app" as UsersApp
+      }
+    }
+
+    node "pod" as PostsAppPod {
+      component "posts-app" as PostsAppContainer <<container>> {
+        component "posts_app" as PostsApp
+      }
+    }
+
+    node "pod" as OffersAppPod {
+      component "offers-app" as OffersAppContainer <<container>> {
+        component "offers_app" as OffersApp
+      }
+    }
+
+    node "pod" as RoutesAppPod {
+      component "routes-app" as RoutesAppContainer <<container>> {
+        component "routes_app" as RoutesApp
+      }
+    }
+
+    node "pod" as ScoresAppPod {
+      component "scores-app" as ScoresAppContainer <<container>> {
+        component "scores_app" as ScoresApp
+      }
+    }
+
+    ' ---------- Pods (Entrega 3) ----------
+    node "pod" as CreditCardsPod {
+      component "credit-cards-app" as CreditCardsContainer <<container>> {
+        component "credit_cards_app" as CreditCardsApp
+      }
+    }
+
+    node "pod" as CallbackPod {
+      component "user-verification-callback-app" as CallbackContainer <<container>> {
+        component "user_verification_callback" as CallbackApp
+      }
+    }
+
+    node "pod" as TrueNativePod {
+      component "truenative-app" as TrueNativeContainer <<container>> {
+        component "truenative" as TrueNative
+      }
+    }
+
+    ' ---------- Ingress routing (single external host) ----------
+    Ingress --> RF003Service : "/rf003/posts"
+    Ingress --> RF004Service : "/rf004/posts/{id}/offers"
+    Ingress --> RF005Service : "/rf005/posts/{id}"
+    Ingress --> UsersAppService : "/users/*"
+    Ingress --> PostsAppService : "/posts/*"
+    Ingress --> OffersAppService : "/offers/*"
+    Ingress --> RoutesAppService : "/routes/*"
+    Ingress --> CreditCardsService : "/credit-cards/*"
+    Ingress --> CallbackService : "/users/verify/callback"
+    Ingress --> TrueNativeService : "/native/*"
+
+    ' ---------- Services to pods ----------
+    RF003Service --> RF003Pod
+    RF004Service --> RF004Pod
+    RF005Service --> RF005Pod
+    UsersAppService --> UsersAppPod
+    PostsAppService --> PostsAppPod
+    OffersAppService --> OffersAppPod
+    RoutesAppService --> RoutesAppPod
+    ScoresAppService --> ScoresAppPod
+    CreditCardsService --> CreditCardsPod
+    CallbackService --> CallbackPod
+    TrueNativeService --> TrueNativePod
+
+    ' ---------- Orchestration to apps ----------
+    RF003Pod --> UsersAppService
+    RF003Pod --> RoutesAppService
+    RF003Pod --> PostsAppService
+
+    RF004Pod --> UsersAppService
+    RF004Pod --> PostsAppService
+    RF004Pod --> RoutesAppService
+    RF004Pod --> OffersAppService
+    RF004Pod --> ScoresAppService
+
+    RF005Pod --> UsersAppService
+    RF005Pod --> PostsAppService
+    RF005Pod --> RoutesAppService
+    RF005Pod --> OffersAppService
+    RF005Pod --> ScoresAppService
+
+    ' ---------- Entrega 3 wiring ----------
+    CreditCardsPod --> UsersAppService : "validate token (sync)"
+    CreditCardsPod --> TrueNativeService : "POST /native/cards (sync)"
+    CreditCardsPod ..> CardQueue : "send event (async)"
+
+    UsersAppPod --> TrueNativeService : "POST /native/verify (sync)"
+    TrueNativePod ..> CallbackService : "PATCH callback (async)"
+
+    CallbackPod --> UsersAppService : "update status (sync)"
+  }
+
+  ' ---------- Data stores ----------
+  database "RDS\n(shared_db)" as SharedDb
+  database "DynamoDB\n(credit_cards_db)" as CreditCardsDb
+
+  UsersAppPod --> SharedDb : "Port: 5432"
+  PostsAppPod --> SharedDb : "Port: 5432"
+  OffersAppPod --> SharedDb : "Port: 5432"
+  RoutesAppPod --> SharedDb : "Port: 5432"
+  ScoresAppPod --> SharedDb : "Port: 5432"
+
+  CreditCardsPod --> CreditCardsDb : "DynamoDB"
+
+  ' ---------- Serverless wiring ----------
+  CardQueue ..> CardWorker : "poll events (async)"
+  CardWorker --> CreditCardsDb : "DynamoDB"
+  CardWorker --> TrueNativeService : "GET /native/cards/{ruv} (sync)"
+  CardWorker ..> SnsTopics : "publish result (async)"
+  CallbackPod ..> SnsTopics : "publish result (async)"
+}
+
+User ..> Ingress : "https://<host>"
+SnsTopics ..> User : "email notification (async)"
+
+note bottom of Ingress
+  Single external host, region us-east-1,
+  default namespace only
+end note
+
+@enduml

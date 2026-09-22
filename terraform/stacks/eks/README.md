@@ -53,6 +53,24 @@ graph TD
 | `eks_cluster_certificate_authority_data` | `string` | Base64-encoded CA certificate for cluster access (sensitive) | kubectl config |
 | `eks_cluster_oidc_issuer_url` | `string` | OIDC issuer URL for Pod Identity / IRSA | IAM role bindings |
 | `eks_node_group_autoscaling_group_names` | `list(string)` | Names of the managed node groups' Auto Scaling Groups | documentation, monitoring |
+| `secret_token` | `string` | TrueNative authentication token (sensitive). Read from the `secrets-pipeline-native-map` secret in AWS Secrets Manager, which the deploy pipeline populates from the GitHub environment secrets. The pipeline exports it as `SECRET_TOKEN` for the envsubst step of the `k8s_entrega3` manifests | `k8s_entrega3/k8s-true-native-deployment.yml` |
+
+## Pipeline secrets (SECRET_TOKEN)
+
+The deploy pipeline uploads every GitHub environment secret except `AWS_*`
+and `GITHUB_TOKEN` to the AWS Secrets Manager secret
+`secrets-pipeline-native-map` (a JSON map) before applying any stack. This
+stack reads that map with a data source (`locals.tf`) and exposes the
+`SECRET_TOKEN` key as the `secret_token` output. The pipeline then exports
+every stack output as an uppercased environment variable for the envsubst
+step that applies the k8s manifests, so the
+`k8s_entrega3/k8s-true-native-deployment.yml` manifest can reference
+`${SECRET_TOKEN}` without the value ever appearing in this repository.
+
+Prerequisite: the `SECRET_TOKEN` secret must exist in the GitHub environment
+(for example `student1`) before the first apply of this stack, otherwise the
+`jsondecode` key access fails at plan time. The map itself is not stored in
+the Terraform state.
 
 ## Deployment Order
 

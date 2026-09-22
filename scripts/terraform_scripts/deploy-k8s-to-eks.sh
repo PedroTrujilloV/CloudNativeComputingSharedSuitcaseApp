@@ -273,7 +273,7 @@ fi
 #     render them into the K8s Secrets applied in step 5.
 # ------------------------------------------------------------
 echo "==> Fetching DB credentials from Secrets Manager"
-SECRET_ARN="$(terraform -chdir=terraform/stacks/database output -raw secrets_manager_secret_arn)"
+SECRET_ARN="$(terraform -chdir=terraform/stacks/1_database output -raw secrets_manager_secret_arn)"
 
 DB_SECRET_JSON="$(aws secretsmanager get-secret-value \
   --secret-id "${SECRET_ARN}" \
@@ -292,15 +292,58 @@ if [ -z "${DB_HOST}" ] || [ "${DB_HOST}" == "null" ]; then
   exit 1
 fi
 
+# ------------------------------------------------------------
+# 4.7 Fetch the pipeline secret map (secrets-pipeline-native-map).
+#     The pipeline ci_entrega2_deploy.yml uploads every GitHub
+#     environment secret (except AWS_* and GITHUB_TOKEN) into this
+#     JSON map before running terraform. The 4_sns stack reads
+#     EMAIL_TO_NOTIFY from it, and the TrueNative manifest needs
+#     SECRET_TOKEN for its K8s Secret.
+# ------------------------------------------------------------
+echo "==> Fetching pipeline secret map (EMAIL_TO_NOTIFY, SECRET_TOKEN)"
+PIPELINE_SECRET_JSON="$(aws secretsmanager get-secret-value \
+  --secret-id "secrets-pipeline-native-map" \
+  --region "${REGION}" \
+  --query SecretString --output text)"
+
+export EMAIL_TO_NOTIFY="$(echo "${PIPELINE_SECRET_JSON}" | jq -r '.EMAIL_TO_NOTIFY')"
+export SECRET_TOKEN="$(echo "${PIPELINE_SECRET_JSON}" | jq -r '.SECRET_TOKEN')"
+
+if [ -z "${EMAIL_TO_NOTIFY}" ] || [ "${EMAIL_TO_NOTIFY}" == "null" ]; then
+  echo "ERROR: EMAIL_TO_NOTIFY came back empty: make sure the GitHub environment" >&2
+  echo "       secret EMAIL_TO_NOTIFY exists before the pipeline runs." >&2
+  exit 1
+fi
+
+if [ -z "${SECRET_TOKEN}" ] || [ "${SECRET_TOKEN}" == "null" ]; then
+  echo "ERROR: SECRET_TOKEN came back empty: make sure the GitHub environment" >&2
+  echo "       secret SECRET_TOKEN exists before the pipeline runs." >&2
+  exit 1
+fi
+
 envsubst < "${DEPLOY_DIR}/00-secrets.yml.tpl" > "${DEPLOY_DIR}/00-secrets.yml"
 echo "    rendered ${DEPLOY_DIR}/00-secrets.yml with real DB credentials"
 
 # ------------------------------------------------------------
-# 5. Apply the k8s_entrega2/ manifests in deployment order.
-#    Note: local-only/15-shared-db.yml is intentionally excluded —
-#    AWS uses the managed RDS instance from the `database` stack instead.
+# 4.8 Render the TrueNative manifest (k8s_entrega3/). It needs
+#     SECRET_TOKEN, which comes from the pipeline secret map
+#     (never hardcoded, same pattern as the local deploy script).
+#     It is applied BEFORE the Ingress, because the /native rule
+#     routes to truenative-service.
 # ------------------------------------------------------------
-echo "==> [5/6] Applying k8s_entrega2/ manifests in order"
+echo "==> Rendering TrueNative manifest (k8s_entrega3/)"
+envsubst < "k8s_entrega3/k8s-true-native-deployment.yml" > "${DEPLOY_DIR}/k8s-true-native-deployment.yml"
+echo "    rendered ${DEPLOY_DIR}/k8s-true-native-deployment.yml with SECRET_TOKEN"
+
+# ------------------------------------------------------------
+# 5. Apply the k8s_entrega2/ and k8s_entrega3/ manifests in
+#    deployment order. The TrueNative manifest goes BEFORE the
+#    Ingress, because the /native rule routes to truenative-service.
+#    Note: local-only/15-shared-db.yml is intentionally excluded —
+#    AWS uses the managed RDS instance from the `1_database` stack
+#    instead.
+# ------------------------------------------------------------
+echo "==> [5/6] Applying k8s_entrega2/ and k8s_entrega3/ manifests in order"
 for f in \
   "${DEPLOY_DIR}/00-secrets.yml" \
   "${DEPLOY_DIR}/20-users-app.yml" \
@@ -311,6 +354,7 @@ for f in \
   "${DEPLOY_DIR}/25-rf003-create-post-app.yml" \
   "${DEPLOY_DIR}/26-rf004-create-offer-app.yml" \
   "${DEPLOY_DIR}/27-rf005-query-post-app.yml" \
+  "${DEPLOY_DIR}/k8s-true-native-deployment.yml" \
   "${DEPLOY_DIR}/zz-ingress.yml"
 do
   echo "    applying ${f}"
@@ -322,7 +366,7 @@ done
 # ------------------------------------------------------------
 echo "==> [6/6] Waiting for Deployments to be ready"
 APPS=(users-app posts-app offers-app routes-app scores-app \
-  rf003-create-post-app rf004-create-offer-app rf005-query-post-app)
+  rf003-create-post-app rf004-create-offer-app rf005-query-post-app truenative)
 
 for d in "${APPS[@]}"; do
   kubectl wait --for=condition=available deployment "$d" --timeout=300s
