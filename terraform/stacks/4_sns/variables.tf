@@ -17,3 +17,18 @@ variable "user_verification_topic_name" {
   description = "Nombre del topic SNS que recibe el resultado de la verificación de identidad de usuarios (RF-007)."
   type        = string
 }
+
+
+variable "db_username" {
+  description = "Unused in this stack; declared only because the course evaluation workflow always passes it via -var."
+  type        = string
+  sensitive   = true
+  default     = null
+}
+
+variable "db_password" {
+  description = "Unused in this stack; declared only because the course evaluation workflow always passes it via -var."
+  type        = string
+  sensitive   = true
+  default     = null
+}

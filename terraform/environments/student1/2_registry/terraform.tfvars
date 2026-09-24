@@ -10,5 +10,7 @@ scores_repository_name = "scores-app"
 rf003_repository_name = "rf003-create-post-app"
 rf004_repository_name = "rf004-create-offer-app"
 rf005_repository_name = "rf005-query-post-app"
+credit_cards_repository_name = "credit-cards-app"
+card_worker_repository_name = "card-worker"
 
 

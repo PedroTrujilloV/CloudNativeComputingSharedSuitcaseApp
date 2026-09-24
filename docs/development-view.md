@@ -26,6 +26,8 @@
     - [Deploy the RF-004 orchestrator (Minikube/EKS)](#deploy-the-rf-004-orchestrator-minikubeeks)
     - [Manual verification of RF-004](#manual-verification-of-rf-004)
   - [RF-005 Post Query](#rf-005-post-query)
+  - [RF-006 Credit Card Verification](#rf-006-credit-card-verification)
+    - [Manual verification of RF-006](#manual-verification-of-rf-006)
 
 ## Project Structure
 
@@ -50,6 +52,8 @@
 ├── rf003_create_post_app/           # RF-003 orchestrator (Entrega 2)
 ├── rf004_create_offer_app/          # RF-004 orchestrator (Entrega 2)
 ├── rf005_query_post_app/            # RF-005 orchestrator (Entrega 2)
+├── credit_cards_app/                # Credit cards application (Entrega 3, RF-006)
+├── card_worker/                     # Card verification worker (Entrega 3, RF-006): Lambda function image
 ├── user_verification_callback/      # RF-007 verification callback receiver + result email (Entrega 3)
 │   └── README.md                    # App structure, tests, env vars, config, execution
 │
@@ -92,9 +96,13 @@
 
 ### Application Folders
 
-Each application (`users_app`, `routes_app`, `posts_app`, `offers_app`, and `scores_app`) is an independent component with its own source code, unit tests, `Dockerfile`, and `README.md` file describing its structure, environment variables, execution, and testing.
+Each application (`users_app`, `routes_app`, `posts_app`, `offers_app`, `scores_app`, `credit_cards_app`, and `card_worker`) is an independent component with its own source code, unit tests, `Dockerfile`, and `README.md` file describing its structure, environment variables, execution, and testing.
 
 `scores_app` is new in Entrega 2: it owns the Score (Utilidad) entity and persists one current score per offer (idempotent upsert by `offerId`), exposing a null-safe API (a missing score reads as `score: null`, never an error).
+
+`credit_cards_app` is new in Entrega 3: it owns the CreditCard entity in its own DynamoDB table (provisioned by the `3_dynamodb` Terraform stack), isolated from the shared RDS PostgreSQL instance. It holds the application skeleton, the data model with the `issuer` and `status` enums from the entity specification, the DynamoDB persistence layer, the synchronous card creation flow (`POST /credit-cards`), the user scoped listing flow (`GET /credit-cards`), and the utility endpoints (`GET /credit-cards/count`, `GET /credit-cards/ping`, `POST /credit-cards/reset`): bearer token validation against the users application, request validation, duplicate and expiration rejection, TrueNative tokenization, persistence as `POR_VERIFICAR`, the verification event publish to the SQS queue, the listing of the caller's cards through the `userId-index` GSI, and the unauthenticated count, ping, and reset operations.
+
+`card_worker` is new in Entrega 3: it is the asynchronous card verification worker of RF-006, an AWS Lambda function packaged as a container image (not a web service, so it has no FastAPI layer). It consumes the card verification queue (provisioned by the `5_sqs` stack), polls TrueNative `GET /native/cards/{ruv}` a bounded number of times per invocation (5 attempts with 2 seconds between them by default), and updates the terminal status and `updatedAt` of the card in the DynamoDB table owned by `credit_cards_app`. After the persist it publishes the mandatory email notification of the result (result, basic card data as stored, and the RUV) to the SNS topic `grupo33-card-verification-notifications` of the `4_sns` stack, whose email protocol subscription delivers it to the `EMAIL_TO_NOTIFY` address; on the last receive without a terminal state it publishes the `POR_VERIFICAR` fallback notification before the event moves to the dead letter queue. The function, its least privilege execution role, and the queue event source mapping are provisioned by the `6_lambda` stack. When the bounded attempts are exhausted the invocation fails on purpose, so the queue redelivers the event and the card stays `POR_VERIFICAR`; after the maximum number of receives the event is moved to the dead letter queue (documented fallback of the RF-006 pattern).
 
 Each application has exclusive ownership of its own data: no application directly accesses another application's database.
 
@@ -115,6 +123,14 @@ and they must not be applied to the same cluster at the same time.
   File names encode the apply order (00 secrets, 15 shared db, 20 apps, zz
   ingress), which matches the alphabetical order used by the
   `ci_entrega2_deploy.yml` pipeline.
+- **`k8s_entrega3/`** contains the new manifests of the Entrega 3
+  deployment: the TrueNative deployment + Service
+  (`k8s-true-native-deployment.yml`, which also defines the
+  `truenative-secret` consumed by both workloads) and the credit cards
+  Deployment + Service (`k8s-credit-cards-deployment.yml`), which creates the
+  `credit-cards-service` target of the `/credit-cards` ingress rule and wires
+  the DynamoDB table name and the card verification queue URL from the
+  Terraform outputs via envsubst.
 - **`k8s/`** contains the original legacy Entrega 1 manifests
   (`.yaml`) for the four original apps (for example `users-app.yaml`,
   `users-network-policy.yaml`), with underscore image names
@@ -697,3 +713,171 @@ collection stops the Scores service first and verifies the `200` with
 `"score": null` per offer instead of a failure). See the
 [RF-005 app README](../rf005_query_post_app/README.md#manual-verification-curl)
 for the curl equivalent.
+
+## RF-006 Credit Card Verification
+
+RF-006 spans two deployable components with one asynchronous seam between
+them. The `credit_cards_app` service exposes `POST /credit-cards` and answers
+in under five seconds: it validates the Bearer token against the Users
+service, rejects an expired card (412) and a card the caller already stored
+(409), tokenizes the card at TrueNative, stores the card as `POR_VERIFICAR`
+in its dedicated DynamoDB table (the raw number and the CVV are never
+persisted), publishes a verification event to the SQS queue, and answers
+`201` with the card id, the owner id, and the creation date.
+
+The `card_worker` is a standalone deployable unit outside the cluster: a
+Lambda function (stack `6_lambda`) that consumes the queue through an event
+source mapping. For each event it polls `GET /native/cards/{ruv}` at
+TrueNative with a bounded budget (5 attempts, a 2 second interval, and a
+3 second HTTP timeout), and when the platform reports a terminal status it
+updates the card to `RECHAZADA` or `APROBADA` in DynamoDB and publishes
+the mandatory email notification of the result (result, basic card data as
+stored, and the RUV) to the SNS topic `grupo33-card-verification-notifications`
+of the `4_sns` stack. A non terminal answer (HTTP 202) consumes one attempt
+of the budget. When the budget is exhausted the invocation fails on
+purpose, the queue redelivers the message, and on the last receive (5 by
+default, `MAX_RECEIVE_COUNT` mirroring the redrive policy of `5_sqs`) the
+worker publishes the `POR_VERIFICAR` fallback notification before the
+event lands in the dead letter queue, while the card stays
+`POR_VERIFICAR` (documented fallback). The worker reaches TrueNative
+through the public ingress host of the cluster, and the secret token
+travels through the Lambda environment configuration; it never appears in
+this repository. The owner email that the notification carries is resolved
+by `credit_cards_app` through the users application API (`GET /users/me`)
+at creation time and travels in the queue event; the worker never reads
+the users database.
+
+The utility endpoints of the API specification (TASK-025) are live on the
+same application, without any authentication: `GET /credit-cards/count`
+answers `{"count": <n>}` with the current number of stored cards,
+`GET /credit-cards/ping` answers the plain text `pong` (the liveness
+probe the image health check uses), and `POST /credit-cards/reset`
+deletes every stored card and answers the exact documented message
+`{"msg": "Todos los datos fueron eliminados"}` (not translated). The
+grading pipeline uses these endpoints to set up and check state between
+runs.
+
+### Manual verification of RF-006
+
+The verification is split by environment because the asynchronous seam
+needs the serverless stacks, which only exist on AWS.
+
+**AWS dev environment, full flow.** The script
+`scripts/terraform_scripts/verify-aws-rf006.sh` runs the exact steps below
+and exits 0 only when every check passes. Prerequisites: AWS credentials
+for the dev account in `us-east-1`, the full platform deployed (the
+`config.yaml` `tf_stacks`, the k8s manifests, and the `post_k8s_stacks`;
+the `ci_entrega2_deploy.yml` pipeline or the helpers in
+`scripts/terraform_scripts/` cover that), and the `aws` CLI plus `curl`,
+`jq`, `python3`, and `kubectl` with a kubeconfig pointed at the dev
+cluster.
+
+1. Resolve the single external host: the ingress load balancer carrying the
+   tag `kubernetes.io/service-name=ingress-nginx/ingress-nginx-controller`.
+   Set `BASE=https://<dns name>` (the certificate is self signed, so use
+   `curl -k` or `newman --insecure`).
+2. Check the asynchronous infrastructure: the queue
+   `grupo33-card-verification` and its dead letter queue exist, the table
+   `grupo33-credit-cards` is `ACTIVE`, the SNS topic
+   `grupo33-card-verification-notifications` exists, the function
+   `grupo33-card-worker` is `Active` under the role
+   `grupo33-card-worker-role`, the event source mapping from the queue to
+   the function is `Enabled`, and the `credit-cards-app` and `truenative`
+   Deployments have available replicas.
+3. Configure TrueNative for the first scenario: `POST $BASE/native/env`
+   with the body
+   `{"SUCCESS_RATE": 0, "MAX_POLL_DELAY": 5, "MAX_WEBHOOK_DELAY": 5}`
+   expects `200`.
+4. Create the caller with `POST $BASE/users` (a fresh username and a
+   random 8 digit DNI) and expect `201`, then obtain a bearer token with
+   `POST $BASE/users/auth` and expect `200`.
+5. Check the synchronous contract with the card body (a random 16 digit
+   number starting with 4, a random 3 digit CVV, and an expiration two
+   years from now in `MM/YY` format, computed at runtime): without a token
+   the answer is `403`; with the header `Authorization: Bearer FAKETOKEN`
+   it is `401`; with the valid token and a body missing
+   `expirationDate` and `cardHolderName` it is `400`; with the valid token
+   and the expiration `19/01` it is `412`. Then check the utility
+   endpoints, which need no bearer token: `GET $BASE/credit-cards/ping`
+   answers `200` with the body `pong`, and
+   `GET $BASE/credit-cards/count` answers `200` with
+   `{"count": <n>}`.
+6. Create the card with the valid token and the full body and expect `201`
+   with the card `id`. Post the same body a second time and expect `409`.
+7. Watch the card through the listing endpoint: `GET $BASE/credit-cards`
+   with the caller bearer token answers the JSON array of the caller's
+   cards, each item with `id`, `token`, `userId`, `lastFourDigits`,
+   `issuer`, `status`, `createdAt`, and `updatedAt` (the dates in ISO
+   format). Right after the creation the item with the card `id` carries
+   `status` `POR_VERIFICAR`. Poll the same call every 3 seconds for up to
+   60 seconds: the worker moves the card to `RECHAZADA` and refreshes
+   `updatedAt`. The equivalent ground truth read is `aws dynamodb
+   get-item --table-name grupo33-credit-cards --key '{"id": {"S": "<card
+   id>"}}'`. Then confirm that `ApproximateNumberOfMessages` of the queue
+   is `0` (the event was consumed) and that the dead letter queue is
+   still `0`.
+8. Switch the scenario with `POST $BASE/native/env` and the body
+   `{"SUCCESS_RATE": 100, "MAX_POLL_DELAY": 5, "MAX_WEBHOOK_DELAY": 5}`
+   (expect `200`), create a second card with a new random number (expect
+   `201`), and repeat the polling: the worker moves it to `APROBADA`. The
+   dead letter queue must still be `0`.
+9. Check the result email notification for both outcomes: after each
+   terminal state the worker publishes the notification to the SNS topic,
+   which is observable in the CloudWatch log group of the function. Run
+   `aws logs filter-log-events --log-group-name /aws/lambda/grupo33-card-worker --filter-pattern 'Published the card result notification' --start-time <unix seconds of the verification start>`
+   and expect entries with both `status RECHAZADA` and `status APROBADA`.
+   The notification content is the process result, the basic card data as
+   stored in the database (id, last four digits, issuer, updated date),
+   the RUV generated by TrueNative, and the recipient address; the raw
+   card number and the CVV never appear in it. The owner email is the one
+   the credit cards application resolved through the users application
+   API (`GET /users/me`) at creation time and carried in the queue event.
+   The email itself is delivered by the email protocol subscription of
+   the topic to the `EMAIL_TO_NOTIFY` address of the
+   `secrets-pipeline-native-map` secret (after the deploy, the SNS
+   confirmation email of that address must be opened and its link clicked
+   once, so the subscription stops being pending).
+10. Cross check the TrueNative side, the same contract the worker polls:
+    read the stored `ruv` attribute of the first card from the table
+    (the documented listing contract does not return it), decode the
+    token from the `truenative-secret` Kubernetes secret, and call
+    `GET $BASE/native/cards/<ruv>` with that bearer token. The body
+    reports the `status` `RECHAZADA`.
+11. Cleanup: `POST $BASE/credit-cards/reset` (no token) deletes every
+     stored card and answers `200` with the exact documented message
+     `{"msg": "Todos los datos fueron eliminados"}`; then
+     `GET $BASE/credit-cards/count` must be back to `0`. The script does
+     it unless you pass `--keep`, and falls back to the item by item
+     `aws dynamodb delete-item` when the endpoint does not answer `200`.
+
+The grader runs the same flow with newman against
+`scripts/entrega3/entrega3.json`, folder "RF-006 Tarjetas," with the
+environment variable `BASE_PATH` set to the ingress host:
+
+```bash
+newman run scripts/entrega3/entrega3.json \
+  --env-var BASE_PATH="${BASE}" \
+  --folder "RF-006 Tarjetas" --insecure
+```
+
+The terminal state checks of that collection use `GET /credit-cards`,
+the same listing endpoint observed in step 7; the DynamoDB read of step 7
+remains the ground truth cross check.
+
+**Local Minikube, partial flow.** `bash scripts/local-deploy.sh` builds the
+`credit-cards-app` image, deploys the `k8s_entrega3/` workloads
+(TrueNative plus the credit cards Deployment and Service) with local
+placeholder values (the table name is a placeholder and the empty queue URL
+makes the app skip the publish and log it), and then
+`bash scripts/local-verify.sh` asserts what the cluster can answer: the
+`credit-cards-app` pod and the `credit-cards-service` ClusterIP service are
+running, the ingress rule routes `GET /credit-cards/ping` to the app
+(`200` with the body `pong`, the liveness probe), the creation endpoint
+answers `403` without a token, `401` with an invalid token, `400` with a
+body missing fields, and `412` with an expired card, and the listing
+endpoint `GET /credit-cards` answers the same auth contract (`403` without
+a token, `401` with an invalid token). The `200` answers that need the
+table (the listing, the count, and the reset) are covered by the AWS
+steps above. The `201` creation, the asynchronous terminal state, and the
+result email notification are not verifiable locally: Minikube has no
+DynamoDB table, no SQS queue, and no Lambda function.

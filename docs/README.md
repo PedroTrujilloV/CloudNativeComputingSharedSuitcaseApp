@@ -358,11 +358,9 @@ docker run <image_name>:<image_tag>
 
 In this project, Minikube is used to deploy and validate the complete system locally, including:
 
-* Eight services (four legacy microservices plus scores_app, rf003_create_post_app, rf004_create_offer_app, and rf005_query_post_app).
-* One shared PostgreSQL instance with per-app database and role isolation (five databases: users_db, posts_db, offers_db, routes_db, scores_db).
+* Ten workloads: the four legacy microservices, scores_app, rf003_create_post_app, rf004_create_offer_app, rf005_query_post_app, and the two Entrega 3 workloads (credit-cards-app and truenative).
 * One shared PostgreSQL instance with per-app database and role isolation (five databases: users_db, posts_db, offers_db, routes_db, scores_db).
 * Kubernetes Services.
-* Application-to-database communication through PostgreSQL-level role grants.
 * Application-to-database communication through PostgreSQL-level role grants.
 
 Start the cluster with:
@@ -456,21 +454,38 @@ exactly the same sequence that runs on GitHub Actions:
 
 ```bash
 # 1. Deploy: cleans old clusters/images, starts Minikube with the ingress
-#    addon, builds all images, applies the k8s_entrega2/ manifests in order
-#    and waits until every Deployment is ready.
+#    addon, builds all images (the legacy and Entrega 2 apps plus
+#    credit-cards-app), applies the k8s_entrega2/ manifests in order,
+#    deploys the k8s_entrega3/ workloads (TrueNative and the credit
+#    cards Deployment + Service, with local placeholder values for the
+#    DynamoDB table and the SQS queue), and waits until every
+#    Deployment is ready.
 bash scripts/local-deploy.sh
 
 # 2. Verify: checks pods, services and the ingress; verifies all app
 #    Services are ClusterIP; pings every app through the Ingress paths
 #    only; runs a functional smoke test (user -> login rejected while
 #    not VERIFICADO -> apply the verification status -> auth ->
-#    RF-003 create post -> read post back); and runs the full Postman
-#    collections
+#    RF-003 create post -> read post back. Also the credit cards app 
+#    through the liveness probe /credit-cards/ping, body "pong"); 
+#    runs a functional smoke test
+#    (user -> auth -> RF-003 create post -> read post back, plus the
+#    credit cards error responses that do not need the AWS stacks: 403,
+#    401, 400 and 412 on the creation endpoint, and 403 plus 401 on the
+#    listing endpoint); and runs the
+#    full Postman collections
 #    (functional + consistency) against http://localhost:80, taking the
 #    relevant deployment down with `kubectl scale` for each consistency
 #    scenario (see "Testing saga consistency with Postman + kubectl").
 bash scripts/local-verify.sh
 ```
+
+The RF-006 happy path (a `201` creation plus the asynchronous terminal
+state) is not verifiable on Minikube, because the cluster has no DynamoDB
+table, no SQS queue, and no Lambda function. It is verified on the AWS dev
+environment with `scripts/terraform_scripts/verify-aws-rf006.sh` (see
+"Manual verification of RF-006" in
+[development-view.md](./development-view.md#manual-verification-of-rf-006)).
 
 Sizes can be tuned with environment variables, for example
 `MINIKUBE_MEMORY=6g bash scripts/local-deploy.sh` on machines with a smaller
@@ -721,10 +736,9 @@ curl ${INGRESS}/routes/ping
 curl ${INGRESS}/rf003/ping
 curl ${INGRESS}/rf004/ping
 curl ${INGRESS}/rf005/ping
-# Orchestrator apps (Entrega 2) - routed to /rf003/*, /rf004/*, /rf005/*
-curl ${INGRESS}/rf003/ping
-curl ${INGRESS}/rf004/ping
-curl ${INGRESS}/rf005/ping
+
+# Credit cards app (Entrega 3) - routed to /credit-cards/*
+curl ${INGRESS}/credit-cards/ping
 ```
 
 All endpoints should return a `pong` response. The same checks, plus a

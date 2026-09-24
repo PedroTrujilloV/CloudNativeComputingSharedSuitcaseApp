@@ -1,0 +1,41 @@
+[tool.poetry]
+name = "credit-cards-app"
+version = "0.1.0"
+description = "Credit cards microservice (RF-006): owns the CreditCard entity in its own DynamoDB table"
+authors = ["Pedro Trujillo <pe.trujillo@uniandes.edu.co>"]
+license = "MIT"
+readme = "README.md"
+package-mode = false
+
+[tool.poetry.dependencies]
+python = ">=3.11"
+fastapi = ">=0.141.1,<0.142.0"
+uvicorn = ">=0.52.1,<0.53.0"
+boto3 = ">=1.38.0,<2.0.0"
+httpx2 = ">=2.10.0,<3.0.0"
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=9.1.1,<10.0.0"
+pytest-cov = ">=7.1.0,<8.0.0"
+moto = ">=5.0.0,<6.0.0"
+
+[tool.pytest.ini_options]
+python_files = "test_*.py"
+pythonpath = "src"
+testpaths = [
+  "tests"
+]
+env = [
+  "APP_NAME = credit_cards_app",
+  "LOG_LEVEL = INFO",
+  # Unit tests run against the moto in memory DynamoDB table; the
+  # application default region is us-east-1, where the 3_dynamodb stack
+  # provisions the real table.
+  "AWS_REGION = us-east-1",
+  "DYNAMODB_TABLE_NAME = credit_cards"
+]

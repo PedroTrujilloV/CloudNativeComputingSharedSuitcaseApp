@@ -9,6 +9,210 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added the RF-006 utility endpoints (TASK-025, issue #96):
+  `credit_cards_app` now serves `GET /credit-cards/count` (200 with
+  `{"count": <n>}`), `GET /credit-cards/ping` (200 with the plain text
+  body `pong`, the same contract as the TrueNative liveness probe), and
+  `POST /credit-cards/reset` (deletes every stored card and answers 200
+  with the exact documented message `{"msg": "Todos los datos fueron
+  eliminados"}`, not translated). All three are unauthenticated, as the
+  API specification defines them; the grading pipeline uses them to set
+  up and check state between runs, so the exact contract fidelity is
+  asserted by the unit tests and the verification scripts. New
+  `CountCreditCardsUseCase` and `ResetCreditCardsUseCase` (the repository
+  port already exposed `count` and `delete_all`), the
+  `CountCreditCardsResponse` and `ResetCreditCardsResponse` schemas, and
+  173 unit tests in `credit_cards_app` (99% coverage). The image
+  health check now probes `/credit-cards/ping` instead of
+  `/openapi.json`; `scripts/local-verify.sh` uses the ping as the
+  routing check, and `scripts/terraform_scripts/verify-aws-rf006.sh`
+  checks the ping and count answers and uses the reset endpoint for the
+  final cleanup (the item by item table deletion stays as fallback).
+- Added the card listing endpoint `GET /credit-cards` (TASK-024, issue
+  #95, RF-006): `credit_cards_app` now answers 200 with the JSON array of
+  the caller's stored cards, each item with `id`, `token`, `userId`,
+  `lastFourDigits`, `issuer`, `status`, `createdAt`, and `updatedAt`
+  (the dates in ISO `yyyy-mm-ddTHH:MM:SS`, UTC 0). The bearer token
+  contract matches the creation endpoint (403 without a token, 401 with
+  an invalid or expired token, validated against the users application),
+  and the listing is strictly user scoped: a single query on the
+  `userId-index` GSI filtered by the caller id, so cards belonging to
+  other users are never returned. The raw card number and the CVV are not
+  stored by the application, so they cannot appear in the answer, and the
+  payment `token` is documented in the listing only because the API
+  contract of the exercise requires it (a real service would never expose
+  it). New `ListCreditCardsUseCase` and `CreditCardResponse` schema; 165
+  unit tests in `credit_cards_app` (99% coverage). The asynchronous
+  terminal states are now observed through this endpoint in the manual
+  verification (the same contract the grader collection uses), and
+  `scripts/local-verify.sh` asserts the listing auth contract (403
+  without a token, 401 with an invalid token) on Minikube.
+- Added the result email notification of the card verification (TASK-023,
+  issue #94, RF-006): the `card_worker` now publishes, right after it
+  persists the terminal state, the mandatory email notification to the SNS
+  topic `grupo33-card-verification-notifications` of the `4_sns` stack. The
+  message carries the process result, the basic card data as stored in the
+  database (id, last four digits, issuer, updated date), the RUV generated
+  by TrueNative, and the recipient address; the raw card number and the CVV
+  never appear in it. The notification is sent for every outcome: on the
+  terminal state the publish raises on failure, so the queue redelivers the
+  event and the notification is retried (the status update is idempotent by
+  card id), and on the last receive without a terminal state (detected
+  through the SQS `ApproximateReceiveCount` attribute and the new
+  `MAX_RECEIVE_COUNT` setting that mirrors the redrive policy of the
+  `5_sqs` stack) the worker publishes the `POR_VERIFICAR` fallback
+  notification before the event moves to the dead letter queue, so the
+  owner is never left without the email. The recipient is the owner email
+  that `credit_cards_app` resolves through the `users_app` API
+  (`GET /users/me`) at creation time and carries in the queue event (new
+  `ownerEmail` field), so the worker never reads the users database. New
+  `CardResultPublisherPort` and `SnsCardResultPublisherAdapter` in
+  `card_worker`, and 82 unit tests in `card_worker` (99% coverage, moto
+  in memory DynamoDB and SNS, `httpx2` mock transport, injected sleep for
+  the polling waits).
+- Added the manual verification of the RF-006 asynchronous card
+  verification flow (follow up of TASK-022, issue #93): a new
+  `scripts/terraform_scripts/verify-aws-rf006.sh` script that runs the
+  full reproducible sequence on the AWS dev environment. It checks the
+  asynchronous infrastructure (the card verification queue, its dead
+  letter queue, the DynamoDB table, the image based Lambda function and
+  its execution role, the SQS event source mapping, the credit cards and
+  TrueNative Deployments, and the ingress load balancer by tag), the
+  synchronous contract of `POST /credit-cards` (403 without a token, 401
+  with an invalid token, 400 with missing fields, and 412 with an
+  expired card), the asynchronous seam (`POR_VERIFICAR` right after the
+  201 creation, then `RECHAZADA` with `SUCCESS_RATE=0` and `APROBADA`
+  with `SUCCESS_RATE=100`, reading the terminal state from the table and
+  later from the card listing endpoint added in TASK-024, with the queue
+  and the dead letter queue drained), and the duplicate rejection (409). It uses
+  relative dates computed at runtime, exits 0 only when every check
+  passes, and deletes the created cards unless `--keep` is passed. The
+  exact steps are documented in the new Manual verification of RF-006
+  section of `docs/development-view.md` (AWS full flow, local Minikube
+  partial flow and why the happy path is AWS only), with short pointers
+  in `docs/README.md` (Run with Minikube) and in the `credit_cards_app`
+  README.
+- Implemented the asynchronous credit card verification worker (TASK-022,
+  issue #93, RF-006): a new `card_worker` application, an AWS Lambda
+  function packaged as a container image (SAM Python 3.11 base, handler
+  `handler.handler`), that consumes the card verification queue, polls
+  TrueNative `GET /native/cards/{ruv}` a bounded number of times per
+  invocation (5 attempts with a 2 second interval and a 3 second timeout by
+  default), and updates the terminal card status and `updatedAt` in the
+  DynamoDB table owned by `credit_cards_app` (idempotent by card id). When
+  the attempts are exhausted the invocation fails on purpose, so the queue
+  redelivers the event and the card stays `POR_VERIFICAR`; after the
+  maximum number of receives (5) the event is moved to the dead letter
+  queue, which is the documented fallback of the pattern. New Terraform
+  stacks: `5_sqs` (queue, dead letter queue, and redrive policy, in
+  `tf_stacks`) and `6_lambda` (image based function, least privilege
+  execution role, and SQS event source mapping with batch size 1, in
+  `post_k8s_stacks`, reaching TrueNative through the single external host
+  of the platform). The `card-worker` ECR repository in `2_registry`, the
+  `card_worker` entry in `config.yaml` `apps` (image `card-worker:v0.0.0`),
+  the missing `k8s_entrega3/k8s-credit-cards-deployment.yml` (the
+  Deployment + Service that the `/credit-cards` ingress rule targets,
+  wiring the DynamoDB table name and the queue URL from the Terraform
+  outputs), and the `card_worker` job in `ci_evaluador_unit.yml`. 63 unit
+  tests with 99% coverage (moto in memory DynamoDB, `httpx2` mock
+  transport, injected sleep for the polling waits).
+
+### Changed
+
+- Updated `credit_cards_app` so the bearer token verification resolves the
+  card owner (id and email) through the users application API with the new
+  `VerifiedUser` value object, and the `CARD_VERIFICATION_REQUESTED` queue
+  event now carries the owner email, which the card worker uses to address
+  the result email notification. 157 unit tests with 98% coverage.
+- Updated the `6_lambda` stack to inject the `MAX_RECEIVE_COUNT`
+  environment variable (new variable, default 5, mirroring
+  `max_receive_count` of the `5_sqs` stack), and updated
+  `scripts/terraform_scripts/verify-aws-rf006.sh` to check the SNS topic of
+  the result notification and the notification publish itself (both the
+  `RECHAZADA` and the `APROBADA` entries in the CloudWatch log group of the
+  worker). The documentation followed: the Manual verification of RF-006
+  section of `docs/development-view.md` (new step 9 for the email check,
+  renumbered to 11 steps), the `card_worker` and `credit_cards_app`
+  READMEs, the RF-006 sequence view, and the messaging and email mechanism
+  section of the deployment view.
+- Updated the deployment and verification scripts for RF-006:
+  `scripts/local-deploy.sh` now builds the `credit-cards-app` image and
+  deploys the `k8s_entrega3/` credit cards Deployment and Service with
+  local placeholder values (a placeholder table name and an empty queue
+  URL that makes the app skip the publish and log it),
+  `scripts/local-verify.sh` now asserts the credit cards pod and
+  service, the ingress routing of `POST /credit-cards`, and the 403,
+  401, 400 and 412 responses, and
+  `scripts/terraform_scripts/deploy-k8s-to-eks.sh` now builds and pushes
+  the `credit-cards-app` image, renders the credit cards manifest from
+  the `3_dynamodb` and `5_sqs` Terraform outputs, applies it before the
+  ingress, and waits for it.
+- Added the missing `config.tf` (AWS provider block with the default
+  tags) to the `5_sqs` and `6_lambda` stacks, pinning the AWS provider
+  to `~> 6` to match the resource and data source names those stacks
+  already use (`message_retention_seconds` and the `aws_lb` data
+  source); without it their `terraform plan` failed on the provider
+  configuration.
+- Updated `config.yaml` (`5_sqs` in `tf_stacks`, `6_lambda` in
+  `post_k8s_stacks`, and the `card_worker` application entry), the root
+  `README.md` (stack table, deployment order, and the deployment
+  procedure), `docs/development-view.md` (application and k8s folders),
+  `docs/terraform-deployment.md` (stack decomposition, deployment order,
+  and destroy order), and `docs/deployment-view.md` (infrastructure and
+  ingress sections). The stack README copy list in `pages.yml` now
+  includes `3_dynamodb`, `5_sqs`, and `6_lambda`, and the app README copy
+  list now includes `credit_cards_app` and `card_worker`.
+
+- Implemented the synchronous card creation flow of `credit_cards_app`
+  (TASK-021, issue #92, RF-006): `POST /credit-cards` validates the caller
+  bearer token against the users application (`GET /users/me`, no direct
+  access to its database), rejects missing, empty, or malformed fields
+  with 400, expired cards with 412, and duplicates with 409, tokenizes the
+  card at TrueNative (`POST /native/cards` with a unique
+  `transactionIdentifier` and the `Authorization: Bearer <SECRET_TOKEN>`
+  header), persists it as `POR_VERIFICAR` (the raw card number and the CVV
+  are never stored), publishes the verification event to the SQS queue,
+  and answers `201 {id, userId, createdAt}` in under 5 seconds. A
+  TrueNative tokenization failure stores nothing and answers 502. New
+  adapters for the users application, TrueNative, and the queue, the
+  `CreateCreditCardUseCase`, the BIN issuer detection with `UNKNOWN`
+  fallback, and the expiration service. 156 unit tests with 98% coverage
+  (moto in memory DynamoDB and SQS, `httpx2` mock transport for the HTTP
+  adapters).
+
+### Changed
+
+- Extended `credit_cards_app` configuration with `USERS_APP_URL`,
+  `TRUENATIVE_URL`, `TRUENATIVE_SECRET_TOKEN`,
+  `CARD_VERIFICATION_QUEUE_URL`, and `HTTP_TIMEOUT_SECONDS`, and moved
+  `httpx2` from the dev group to the main dependencies (it is now the
+  runtime HTTP client of the token validation and the TrueNative
+  tokenization).
+- Updated `credit_cards_app/README.md` (creation flow, request and error
+  contract, environment variables) and `docs/development-view.md`
+  (application folder description).
+
+- Created the `credit_cards_app` component (TASK-020, issue #91, RF-006
+  scaffold): application skeleton (FastAPI, no business endpoints yet),
+  `CreditCard` data model with the `issuer` and `status` enums from the
+  entity specification (dates follow the ISO `yyyy-mm-ddTHH:MM:SS` contract
+  in UTC 0), and the exclusive DynamoDB persistence layer (partition key `id`,
+  `userId-index` GSI). 54 unit tests with 100% coverage, run against an
+  in memory DynamoDB table (moto); no raw card number or CVV is stored.
+- Added the `3_dynamodb` Terraform stack (dedicated DynamoDB table for the
+  `CreditCard` entity, exclusive to `credit_cards_app`) with the `dev` and
+  `student1` environments, and registered it in `config.yaml` `tf_stacks`
+  between `2_registry` and `eks`. The `dev` environment table
+  (`grupo33-credit-cards`) was applied to validate the stack end to end.
+- Extended the `2_registry` stack with the `credit-cards-app` ECR
+  repository and registered the `credit_cards_app` entry in `config.yaml`
+  `apps` so the deploy pipeline builds and pushes the new image.
+- Added the `credit_cards_app` job to `ci_evaluador_unit.yml` (unit tests
+  with the 70% coverage minimum, same pattern as the other applications).
+- Documented the `CreditCard` entity in `docs/information-view.md`, the
+  application in `docs/development-view.md`, and the new stack in
+  `docs/terraform-deployment.md`, the root `README.md` stack table, and the
+  `makefile` `docscopy` target.
 - Triggered the TrueNative identity verification on user creation in
   `users_app` (T011, branch
   `feature/epic-b-rf007-t011-trigger-identity-verify`):

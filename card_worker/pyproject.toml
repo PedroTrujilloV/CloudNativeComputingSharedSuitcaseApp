@@ -1,0 +1,37 @@
+[tool.poetry]
+name = "card-worker"
+version = "0.1.0"
+description = "Card verification worker (RF-006): AWS Lambda function that polls TrueNative until the card reaches a terminal state"
+authors = ["Pedro Trujillo <pe.trujillo@uniandes.edu.co>"]
+license = "MIT"
+readme = "README.md"
+package-mode = false
+
+[tool.poetry.dependencies]
+python = ">=3.11"
+boto3 = ">=1.38.0,<2.0.0"
+httpx2 = ">=2.10.0,<3.0.0"
+pydantic = ">=2.0.0,<3.0.0"
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=9.1.1,<10.0.0"
+pytest-cov = ">=7.1.0,<8.0.0"
+moto = ">=5.0.0,<6.0.0"
+
+[tool.pytest.ini_options]
+python_files = "test_*.py"
+pythonpath = "src"
+testpaths = [
+  "tests"
+]
+env = [
+  "APP_NAME = card_worker",
+  "LOG_LEVEL = INFO",
+  "AWS_REGION = us-east-1",
+  "DYNAMODB_TABLE_NAME = credit_cards"
+]

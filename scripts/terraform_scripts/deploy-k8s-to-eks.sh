@@ -104,6 +104,9 @@ build_app scores_app scores-app:v0.0.0
 build_app rf003_create_post_app rf003-create-post-app:v0.0.0
 build_app rf004_create_offer_app rf004-create-offer-app:v0.0.0
 build_app rf005_query_post_app rf005-query-post-app:v0.0.0
+# Entrega 3 apps (the card_worker image is NOT deployed on the cluster:
+# the 6_lambda stack consumes it from ECR as the Lambda function image)
+build_app credit_cards_app credit-cards-app:v0.0.0
 
 # ------------------------------------------------------------
 # 2.b Replace image placeholders in Kubernetes manifests
@@ -336,6 +339,31 @@ envsubst < "k8s_entrega3/k8s-true-native-deployment.yml" > "${DEPLOY_DIR}/k8s-tr
 echo "    rendered ${DEPLOY_DIR}/k8s-true-native-deployment.yml with SECRET_TOKEN"
 
 # ------------------------------------------------------------
+# 4.9 Render the credit cards manifest (k8s_entrega3/). The table
+#     name and the queue URL come from the 3_dynamodb and 5_sqs
+#     stack outputs (the stacks must be applied before this step,
+#     which the pipeline order guarantees); the token itself comes
+#     from the truenative-secret created by the TrueNative manifest,
+#     so this manifest only references the secret by name.
+# ------------------------------------------------------------
+echo "==> Rendering credit cards manifest (k8s_entrega3/)"
+CREDIT_CARDS_TABLE_NAME="$(terraform -chdir=terraform/stacks/3_dynamodb output -raw credit_cards_table_name)"
+CARD_VERIFICATION_QUEUE_URL="$(terraform -chdir=terraform/stacks/5_sqs output -raw card_verification_queue_url)"
+
+if [ -z "${CREDIT_CARDS_TABLE_NAME}" ] || [ -z "${CARD_VERIFICATION_QUEUE_URL}" ]; then
+  echo "ERROR: the 3_dynamodb or 5_sqs stack output came back empty." >&2
+  echo "       Apply both stacks (config.yaml tf_stacks order) before this step." >&2
+  exit 1
+fi
+
+ACCOUNT_ID="${ACCOUNT_ID}" AWS_REGION="${REGION}" \
+CREDIT_CARDS_TABLE_NAME="${CREDIT_CARDS_TABLE_NAME}" \
+CARD_VERIFICATION_QUEUE_URL="${CARD_VERIFICATION_QUEUE_URL}" \
+envsubst '${ACCOUNT_ID} ${AWS_REGION} ${CREDIT_CARDS_TABLE_NAME} ${CARD_VERIFICATION_QUEUE_URL}' \
+  < "k8s_entrega3/k8s-credit-cards-deployment.yml" > "${DEPLOY_DIR}/k8s-credit-cards-deployment.yml"
+echo "    rendered ${DEPLOY_DIR}/k8s-credit-cards-deployment.yml (table=${CREDIT_CARDS_TABLE_NAME})"
+
+# ------------------------------------------------------------
 # 5. Apply the k8s_entrega2/ and k8s_entrega3/ manifests in
 #    deployment order. The TrueNative manifest goes BEFORE the
 #    Ingress, because the /native rule routes to truenative-service.
@@ -355,6 +383,7 @@ for f in \
   "${DEPLOY_DIR}/26-rf004-create-offer-app.yml" \
   "${DEPLOY_DIR}/27-rf005-query-post-app.yml" \
   "${DEPLOY_DIR}/k8s-true-native-deployment.yml" \
+  "${DEPLOY_DIR}/k8s-credit-cards-deployment.yml" \
   "${DEPLOY_DIR}/zz-ingress.yml"
 do
   echo "    applying ${f}"
@@ -366,7 +395,8 @@ done
 # ------------------------------------------------------------
 echo "==> [6/6] Waiting for Deployments to be ready"
 APPS=(users-app posts-app offers-app routes-app scores-app \
-  rf003-create-post-app rf004-create-offer-app rf005-query-post-app truenative)
+  rf003-create-post-app rf004-create-offer-app rf005-query-post-app \
+  truenative credit-cards-app)
 
 for d in "${APPS[@]}"; do
   kubectl wait --for=condition=available deployment "$d" --timeout=300s
@@ -379,7 +409,10 @@ done
 kubectl get endpoints \
   users-app-service posts-app-service offers-app-service routes-app-service \
   scores-app-service rf003-create-post-app-service \
-  rf004-create-offer-app-service rf005-query-post-app-service
+  rf004-create-offer-app-service rf005-query-post-app-service \
+  credit-cards-service truenative-service
 
 echo ""
 echo "Deployment finished."
+echo "Verify the RF-006 asynchronous flow with:"
+echo "  bash scripts/terraform_scripts/verify-aws-rf006.sh"

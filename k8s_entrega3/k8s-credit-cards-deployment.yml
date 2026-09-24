@@ -1,0 +1,81 @@
+# Kubernetes deployment for credit_cards_app (Entrega 3, RF-006).
+#
+# This manifest is the prerequisite wiring of the asynchronous card
+# verification flow (TASK-022): the ingress (k8s_entrega2/zz-ingress.yml)
+# routes the /credit-cards prefix to credit-cards-service, which this
+# manifest creates. Without it the queue URL wiring below cannot be
+# exercised end to end.
+#
+# ENVIRONMENT NOTES:
+#
+#   DYNAMODB_TABLE_NAME and CARD_VERIFICATION_QUEUE_URL come from the
+#   Terraform outputs of the 3_dynamodb and 5_sqs stacks (the deploy
+#   pipeline exports the outputs as uppercase env vars and envsubst fills
+#   these values at apply time).
+#
+#   TRUENATIVE_SECRET_TOKEN comes from the truenative-secret defined in
+#   k8s-true-native-deployment.yml (the same secret the TrueNative pod
+#   uses); the token itself never appears in this repository.
+#
+#   AWS credentials for the DynamoDB and SQS clients are resolved by the
+#   standard boto3 chain (the node role through the instance metadata
+#   service). The worker side of the flow runs under its own least
+#   privilege Lambda execution role (6_lambda stack).
+#
+# Usage (from repository root):
+#   kubectl apply -f k8s_entrega3/k8s-credit-cards-deployment.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: credit-cards-app
+  labels:
+    app: credit-cards-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: credit-cards-app
+  template:
+    metadata:
+      labels:
+        app: credit-cards-app
+    spec:
+      containers:
+        - name: credit-cards-app
+          image: ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/credit-cards-app:v0.0.0
+          ports:
+            - containerPort: 8000
+          imagePullPolicy: Always
+          env:
+            - name: APP_NAME
+              value: credit_cards_app
+            - name: LOG_LEVEL
+              value: INFO
+            - name: AWS_REGION
+              value: "${AWS_REGION}"
+            - name: DYNAMODB_TABLE_NAME
+              value: "${CREDIT_CARDS_TABLE_NAME}"
+            - name: USERS_APP_URL
+              value: "http://users-app-service:8000"
+            - name: TRUENATIVE_URL
+              value: "http://truenative-service"
+            - name: TRUENATIVE_SECRET_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: truenative-secret
+                  key: SECRET_TOKEN
+            - name: CARD_VERIFICATION_QUEUE_URL
+              value: "${CARD_VERIFICATION_QUEUE_URL}"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: credit-cards-service
+spec:
+  type: ClusterIP
+  selector:
+    app: credit-cards-app
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8000

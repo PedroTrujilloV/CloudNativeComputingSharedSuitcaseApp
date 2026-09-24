@@ -61,6 +61,18 @@ variable "rf005_repository_name" {
   nullable    = false
 }
 
+variable "credit_cards_repository_name" {
+  description = "Name of the credit_cards_repository (Entrega 3, RF-006)"
+  type        = string
+  nullable    = false
+}
+
+variable "card_worker_repository_name" {
+  description = "Name of the card_worker_repository (Entrega 3, RF-006; container image of the Lambda function)"
+  type        = string
+  nullable    = false
+}
+
 
 variable "db_username" {
   description = "Unused in this stack; declared only because the course evaluation workflow always passes it via -var."

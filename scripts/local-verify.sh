@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================
-# Local verification of the Entrega 2 k8s_entrega2/ deployment on Minikube.
+# Local verification of the k8s_entrega2/ and k8s_entrega3/ deployment
+# on Minikube.
 #
 # Automates the manual verification steps documented in
 # docs/README.md ("Step 5 - Verify pods and services are running"
@@ -17,7 +18,16 @@
 #      VERIFICADO, applies the verification status (the same PATCH the
 #      verification callback component performs), authenticates,
 #      creates a post with the RF-003 orchestrator and reads the post
-#      back from posts_app.
+#      back from posts_app. Also checks
+#      the credit cards application error responses that do not need
+#      the AWS stacks (403, 401, 400, 412), for both the creation
+#      endpoint and the listing endpoint.
+#
+# The RF-006 happy path (201 creation plus the asynchronous terminal
+# state in the DynamoDB table) is NOT verifiable on Minikube: the
+# cluster has no DynamoDB table, no SQS queue and no Lambda function.
+# Verify it on the AWS dev environment with
+# scripts/terraform_scripts/verify-aws-rf006.sh.
 #
 # Usage (from the repository root, cluster already deployed):
 #   bash scripts/local-verify.sh
@@ -111,7 +121,7 @@ echo "==> [1/5] Checking pods, services and ingress"
 for pod in shared-db \
   users-app posts-app offers-app routes-app scores-app \
   rf003-create-post-app rf004-create-offer-app rf005-query-post-app \
-  truenative; do
+  credit-cards-app truenative; do
   status="$(kubectl get pod -l app="${pod}" -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo missing)"
   if [ "$status" = "Running" ]; then
     pass "pod ${pod} is Running"
@@ -123,6 +133,7 @@ done
 for svc in users-app-service posts-app-service offers-app-service \
   routes-app-service scores-app-service rf003-create-post-service \
   rf004-create-offer-service rf005-query-post-service \
+  credit-cards-service \
   truenative-service \
   shared-db-service; do
   if kubectl get service "$svc" >/dev/null 2>&1; then
@@ -155,6 +166,7 @@ fi
 for svc in users-app-service posts-app-service offers-app-service \
   routes-app-service scores-app-service rf003-create-post-service \
   rf004-create-offer-service rf005-query-post-service \
+  credit-cards-service \
   truenative-service; do
   svc_type="$(kubectl get service "$svc" -o jsonpath='{.spec.type}' 2>/dev/null)"
   if [ "$svc_type" = "ClusterIP" ]; then
@@ -224,6 +236,20 @@ if [ "$NATIVE_PING_BODY" = "pong" ]; then
   pass "GET ${INGRESS}/native/ping body is 'pong'"
 else
   fail "GET ${INGRESS}/native/ping body is '${NATIVE_PING_BODY}' (expected 'pong')"
+fi
+
+# Credit cards routing check: GET /credit-cards/ping is the liveness
+# probe of the app (no auth, no persistence access). It must reach the
+# app through the Ingress and answer 200 with the body "pong" (a 404
+# would mean the /credit-cards ingress rule does not route to
+# credit-cards-service, and a different body would mean the route
+# answers but the container is not the right one).
+CC_PING_CODE="$(http_code "${INGRESS}/credit-cards/ping")"
+CC_PING_BODY="$(curl -s --max-time 10 "${INGRESS}/credit-cards/ping" 2>/dev/null)"
+if [ "$CC_PING_CODE" = "200" ] && [ "$CC_PING_BODY" = "pong" ]; then
+  pass "GET ${INGRESS}/credit-cards/ping -> 200 body 'pong' (routed to credit-cards-app)"
+else
+  fail "GET ${INGRESS}/credit-cards/ping -> ${CC_PING_CODE} body '${CC_PING_BODY:-<empty>}' (expected 200 'pong')"
 fi
 
 # ------------------------------------------------------------
@@ -368,6 +394,57 @@ if [ -n "$TOKEN" ]; then
     pass "GET /rf005/posts/${POST_ID} -> 200 (post queryable via orchestrator)"
   else
     fail "GET /rf005/posts/${POST_ID} -> ${CODE} (expected 200)"
+  fi
+
+  # 3.7 RF-006 error responses that do not need the AWS stacks.
+  #     Minikube has no DynamoDB table, SQS queue or Lambda function, so
+  #     only the checks that resolve before the first DynamoDB call are
+  #     asserted here (token validation, request validation, expiration).
+  #     The 201 creation plus the asynchronous terminal state are
+  #     verified on the AWS dev environment (verify-aws-rf006.sh).
+  CODE="$(http_code "${INGRESS}/credit-cards" -X POST \
+    -H "Content-Type: application/json" -H "Authorization: Bearer FAKETOKEN" \
+    -d '{"cardNumber":"4242424242424242","cvv":"123","expirationDate":"28/01","cardHolderName":"Local Verify"}')"
+  if [ "$CODE" = "401" ]; then
+    pass "POST /credit-cards with invalid token -> 401"
+  else
+    fail "POST /credit-cards with invalid token -> ${CODE} (expected 401)"
+  fi
+
+  CODE="$(http_code "${INGRESS}/credit-cards" -X POST \
+    -H "Content-Type: application/json" -H "Authorization: Bearer ${TOKEN}" \
+    -d '{"cardNumber":"4242424242424242","cvv":"123"}')"
+  if [ "$CODE" = "400" ]; then
+    pass "POST /credit-cards with missing fields -> 400"
+  else
+    fail "POST /credit-cards with missing fields -> ${CODE} (expected 400)"
+  fi
+
+  CODE="$(http_code "${INGRESS}/credit-cards" -X POST \
+    -H "Content-Type: application/json" -H "Authorization: Bearer ${TOKEN}" \
+    -d '{"cardNumber":"4242424242424242","cvv":"123","expirationDate":"19/01","cardHolderName":"Local Verify"}')"
+  if [ "$CODE" = "412" ]; then
+    pass "POST /credit-cards with expired card -> 412"
+  else
+    fail "POST /credit-cards with expired card -> ${CODE} (expected 412)"
+  fi
+
+  # 3.8 The listing endpoint GET /credit-cards (TASK-024) has the same
+  #     auth contract as the creation flow. The 200 happy path requires
+  #     the DynamoDB table, so only the auth checks are asserted here
+  #     (the full contract is verified on AWS with verify-aws-rf006.sh).
+  CODE="$(http_code "${INGRESS}/credit-cards")"
+  if [ "$CODE" = "403" ]; then
+    pass "GET /credit-cards without token -> 403"
+  else
+    fail "GET /credit-cards without token -> ${CODE} (expected 403)"
+  fi
+
+  CODE="$(http_code "${INGRESS}/credit-cards" -H "Authorization: Bearer FAKETOKEN")"
+  if [ "$CODE" = "401" ]; then
+    pass "GET /credit-cards with invalid token -> 401"
+  else
+    fail "GET /credit-cards with invalid token -> ${CODE} (expected 401)"
   fi
 fi
 

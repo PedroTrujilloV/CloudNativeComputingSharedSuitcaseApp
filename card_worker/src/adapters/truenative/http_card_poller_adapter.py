@@ -1,0 +1,93 @@
+"""HTTP adapter that polls TrueNative for the card verification state."""
+
+import json
+from collections.abc import Callable
+
+from httpx2 import Client, HTTPError
+
+from config import Settings
+from domain.ports.true_native_poller_port import (
+    TERMINAL_STATUSES,
+    CardPollingResult,
+    TrueNativeCardPollerPort,
+)
+from errors import TrueNativePollingError
+
+
+class HttpCardPollerAdapter(TrueNativeCardPollerPort):
+    """Polls ``GET /native/cards/{ruv}`` of the TrueNative platform.
+
+    A ``202`` answer means the verification is still in progress (non
+    terminal); a ``200`` answer carries the terminal status (``APROBADA``
+    or ``RECHAZADA``). Any other status, any network failure, and an
+    unexpected body surface as ``TrueNativePollingError`` so the caller
+    retries the event through the queue.
+    """
+
+    def __init__(
+        self,
+        base_url: str | None = None,
+        secret_token: str | None = None,
+        timeout: float | None = None,
+        client_factory: Callable[[], Client] | None = None,
+    ):
+        self.base_url = (base_url or Settings.truenative_url).rstrip("/")
+        self.secret_token = secret_token if secret_token is not None else (
+            Settings.truenative_secret_token
+        )
+        self.timeout = timeout if timeout is not None else Settings.http_timeout_seconds
+        self.client_factory = client_factory
+
+    def _new_client(self) -> Client:
+        """Create the HTTP client used for the call (test seam included)."""
+        if self.client_factory is not None:
+            return self.client_factory()
+        # The single external host serves a self signed certificate (the
+        # ingress load balancer has no public certificate), so the TLS
+        # verification is disabled for the polling calls, as the evaluator
+        # does with the same host.
+        return Client(timeout=self.timeout, verify=False)
+
+    def check_status(self, ruv: str) -> CardPollingResult:
+        """Send one polling request and interpret the platform answer."""
+        try:
+            with self._new_client() as client:
+                response = client.get(
+                    f"{self.base_url}/native/cards/{ruv}",
+                    headers={"Authorization": f"Bearer {self.secret_token}"},
+                )
+        except HTTPError as exc:
+            raise TrueNativePollingError("TrueNative could not be reached") from exc
+
+        if response.status_code == 202:
+            return CardPollingResult(terminal=False)
+        if response.status_code != 200:
+            raise TrueNativePollingError(
+                f"TrueNative answered with status {response.status_code}"
+            )
+        return self._parse_terminal(response.text)
+
+    @staticmethod
+    def _parse_terminal(body: str) -> CardPollingResult:
+        """Extract the terminal status from the platform answer."""
+        try:
+            data = json.loads(body)
+        except ValueError:
+            raise TrueNativePollingError(
+                "TrueNative answered with an unexpected body"
+            ) from None
+        if not isinstance(data, dict):
+            raise TrueNativePollingError(
+                "TrueNative answered with an unexpected body"
+            )
+        status = data.get("status")
+        if not isinstance(status, str):
+            raise TrueNativePollingError(
+                "TrueNative did not return the terminal status"
+            )
+        normalized = status.strip().upper()
+        if normalized not in TERMINAL_STATUSES:
+            raise TrueNativePollingError(
+                f"TrueNative returned the unknown status {status}"
+            )
+        return CardPollingResult(terminal=True, status=normalized)

@@ -57,11 +57,19 @@ tf_stacks:
   - 1_database
   # [registry] ECR repos for all apps and orchestrators.
   - 2_registry
+  # [dynamodb] Dedicated DynamoDB table for the CreditCard entity
+  # (credit_cards_app, Entrega 3 RF-006). Exclusive to that component.
+  - 3_dynamodb
   # [eks] Shared EKS cluster + per-app namespace + per-app service account + per-app role binding.
   - eks
   # [4_sns] SNS topics + email subscriptions for RF-006 and RF-007. Reads the
   # EMAIL_TO_NOTIFY secret from the pipeline secret map (never hardcoded).
   - 4_sns
+  # [sqs] Card verification queue + dead letter queue (RF-006). It lives in
+  # tf_stacks (before k8s) because the credit cards manifest needs the queue
+  # URL at envsubst time; the consuming Lambda is provisioned by 6_lambda
+  # (post_k8s_stacks).
+  - 5_sqs
 # Ambiente student1 cuyos backend.tfvars/terraform.tfvars
 # se usan como base para el ambiente `tutor`.
 default_env: student1
@@ -100,7 +108,12 @@ k8s_manifests:
 # Mientras no haya stacks post-k8s, la lista debe permanecer ausente o
 # vacía: el pipeline valida que cada nombre exista como carpeta en
 # terraform/stacks/ y un placeholder de texto haría fallar la corrida.
-post_k8s_stacks: []
+post_k8s_stacks:
+  # [lambda] Card worker Lambda function + least privilege role + SQS event
+  # source mapping (RF-006). Post-k8s because its TRUENATIVE_URL is the
+  # host of the ingress load balancer, which only exists after the k8s
+  # manifests are deployed.
+  - 6_lambda
 
 # Imágenes que construye y sube a ECR el pipeline antes de aplicar
 # k8s_manifests. Aplica tanto para componentes contenedorizados como para
@@ -165,3 +178,20 @@ apps:
       image_tag: v0.0.0
       authors:
         - pe.trujillo@uniandes.edu.co
+  # Componentes nuevos de Entrega 3 (RF-006).
+  - credit_cards_app:
+      folder: credit_cards_app
+      image_name: credit-cards-app
+      image_tag: v0.0.0
+      authors:
+        - pe.trujillo@uniandes.edu.co
+  # Worker de verificación de tarjetas (RF-006): función Lambda empaquetada
+  # como imagen de contenedor (no se despliega en k8s; la consume el stack
+  # 6_lambda como image_uri).
+  - card_worker:
+      folder: card_worker
+      image_name: card-worker
+      image_tag: v0.0.0
+      authors:
+        - pe.trujillo@uniandes.edu.co
+

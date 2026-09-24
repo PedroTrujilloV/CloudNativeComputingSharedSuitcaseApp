@@ -18,7 +18,7 @@
 ├── k8s/                           # Legacy Entrega 1 Kubernetes manifests
 ├── k8s_entrega2/                  # Kubernetes manifests (secrets, apps, ingress, local-only shared DB); in Entrega 3 it gains the manifests for the three new workloads and the updated Ingress
 ├── terraform/                     # Terraform stacks and environments for the AWS infrastructure
-│   ├── stacks/                    # One folder per stack: 0_storage, 1_database, 2_registry, eks, 4_sns, and the remaining Entrega 3 stacks (for example 5_lambda)
+│   ├── stacks/                    # One folder per stack: 0_storage, 1_database, 2_registry, 3_dynamodb, 4_sns, 5_sqs, 6_lambda, eks
 │   └── environments/              # One folder per environment (dev, student1), each holding the tfvars of every stack
 ├── scripts/                       # Local deploy/verify scripts, Postman collections, Terraform helper scripts
 ├── plantuml-generator/            # Docker image that renders the PlantUML diagrams
@@ -131,9 +131,12 @@ single external host. The new units are:
   manifest declares no `namespace`, so the workload runs in the default
   namespace, as the course requires.
 * **Serverless resources:** the DynamoDB table, the SQS queue, the SNS email
-  topics, and the Lambda function are provisioned by the new Terraform stacks
-  (for example `4_sns` and `5_lambda`), which are appended to the `tf_stacks`
-  list of `config.yaml`.
+  topics, and the Lambda function are provisioned by the new Terraform
+  stacks (`3_dynamodb`, `5_sqs`, `4_sns`, and `6_lambda`). The queue lives
+  in `tf_stacks` because the credit cards manifest needs its URL at
+  envsubst time; the Lambda function lives in `post_k8s_stacks` because it
+  needs the host of the ingress load balancer, which only exists once the
+  k8s manifests are deployed.
 * **`users_app` modification:** limited to the rule defined by the project
   document: the service no longer generates or verifies tokens while the user
   is not in the `VERIFICADO` status, so a user in the `POR_VERIFICAR` or
@@ -161,14 +164,24 @@ The infrastructure is defined as Terraform stacks under `terraform/stacks/`, eac
 | **0_storage** | S3 bucket for shared object storage across all apps | [terraform/stacks/0_storage/README.md](./terraform/stacks/0_storage/README.md) |
 | **1_database** | Shared PostgreSQL RDS instance + Secrets Manager | [terraform/stacks/1_database/README.md](./terraform/stacks/1_database/README.md) |
 | **2_registry** | ECR repositories for Docker images | [terraform/stacks/2_registry/README.md](./terraform/stacks/2_registry/README.md) |
+| **3_dynamodb** | Dedicated DynamoDB table for the CreditCard entity (`credit_cards_app`, Entrega 3) | [terraform/stacks/3_dynamodb/README.md](./terraform/stacks/3_dynamodb/README.md) |
 | **eks** | EKS cluster + managed node groups for workloads | [terraform/stacks/eks/README.md](./terraform/stacks/eks/README.md) |
 | **4_sns** | SNS email topics + email subscriptions for RF-006 and RF-007 | [terraform/stacks/4_sns/README.md](./terraform/stacks/4_sns/README.md) |
+| **5_sqs** | Card verification queue + dead letter queue (RF-006, in `tf_stacks`) | [terraform/stacks/5_sqs/README.md](./terraform/stacks/5_sqs/README.md) |
+| **6_lambda** | Card worker Lambda function + least privilege role + event source mapping (RF-006, in `post_k8s_stacks`) | [terraform/stacks/6_lambda/README.md](./terraform/stacks/6_lambda/README.md) |
 
-The remaining Entrega 3 serverless resources (the DynamoDB table of the credit cards, the SQS queue of the card verification events, and the Lambda worker) are provisioned by additional stacks that follow the same numbered naming convention and the same folder rule (both `terraform/stacks/<name>/` and `terraform/environments/<environment>/<name>/` must exist), for example `5_lambda` for the worker and its queue.
+The serverless resources of RF-006 are provisioned by the two stacks above:
+`5_sqs` (in `tf_stacks`) creates the queue and the dead letter queue, and
+`6_lambda` (in `post_k8s_stacks`) creates the worker function, its least
+privilege role, and the event source mapping that connects both sides. Every
+stack follows the same folder rule (both `terraform/stacks/<name>/` and
+`terraform/environments/<environment>/<name>/` must exist).
 
 The `config.yaml` `tf_stacks` list defines the deploy order used by the
-`ci_entrega2_deploy.yml` pipeline: `1_database` → `2_registry` → `eks` →
-`4_sns`, followed by the remaining Entrega 3 stacks in their numbered order
+`ci_entrega2_deploy.yml` pipeline: `1_database` → `2_registry` →
+`3_dynamodb` → `eks` → `4_sns` → `5_sqs`. After the k8s manifests are
+deployed, the pipeline applies the `post_k8s_stacks` list (currently
+`6_lambda`).
 (`0_storage` is commented out in `config.yaml`; see
 [Terraform Cloud Infrastructure](./docs/terraform-deployment.md) for the
 storage bootstrap prerequisite and why it is not part of the pipeline order).
@@ -194,9 +207,9 @@ The cloud deployment is driven by the `ci_entrega2_deploy.yml` pipeline
 or `tutor`). It reads `config.yaml` and performs the following steps in order:
 
 1. **Terraform apply** for each stack in the `tf_stacks` list, in list order
-   (`1_database` → `2_registry` → `eks` → `4_sns`). Each stack uses the
-   `terraform/environments/<environment>/<stack>/` tfvars and stores its state
-   in the shared S3 bucket (see `backend.tfvars`).
+   (`1_database` → `2_registry` → `3_dynamodb` → `eks` → `4_sns` → `5_sqs`).
+   Each stack uses the `terraform/environments/<environment>/<stack>/` tfvars
+   and stores its state in the shared S3 bucket (see `backend.tfvars`).
 2. **Docker image build and push**: one image per entry in the `apps:` list
    (the five microservices, the three orchestrators, and, in Entrega 3, the
    credit cards service, the card verification worker, and the user
@@ -211,6 +224,9 @@ or `tutor`). It reads `config.yaml` and performs the following steps in order:
    `secret_token` output of the `eks` stack (see the Terraform Stacks
    section), so the envsubst step of the pipeline resolves it before the
    manifests reach the cluster.
+4. **Terraform apply of the `post_k8s_stacks`** list (currently `6_lambda`),
+   applied after the k8s manifests so the worker can discover the host of the
+   ingress load balancer and wire the queue, the role, and the function.
 
 Database model: all five data owning applications share a single RDS
 PostgreSQL instance (the `1_database` stack). Data isolation is enforced at
@@ -275,9 +291,11 @@ Run the **Entrega 2 - Deploy** workflow (`ci_entrega2_deploy.yml`) from the
 Actions tab, select the environment (for example `student1`), and wait until
 the run finishes successfully. The pipeline applies the Terraform stacks in
 `tf_stacks` order (including the new stacks that create the DynamoDB table,
-the SQS queue, the SNS topics, the email subscriptions, and the Lambda
-function), builds and pushes the images, and applies the Kubernetes manifests,
-including the new workloads and the TrueNative deployment.
+the SQS queue, and the SNS topics with the email subscriptions), builds and
+pushes the images, applies the Kubernetes manifests (the new workloads and
+the TrueNative deployment), and finally applies the `post_k8s_stacks` list
+(the `6_lambda` stack with the card worker function, its least privilege
+role, and the queue event source mapping).
 
 ### Step 3: Confirm the SNS Email Subscriptions (manual step)
 
@@ -309,12 +327,13 @@ consuming the AWS Academy budget.
 
 ## Testing Toolchain
 
-All the applications are written in Python with FastAPI and Poetry, and they
-are tested with pytest. Each application runs its unit tests with the
+All the applications are written in Python with Poetry, and the web
+applications use FastAPI. They are tested with pytest. Each application runs its unit tests with the
 `unittest` target of the root `makefile` (pytest with pytest-cov and a minimum
 coverage of 70% enforced with `--cov-fail-under=70`). The unit testing pipeline
 `ci_evaluador_unit.yml` (Evaluador Pruebas Unitarias) runs on every push and
-pull request to `main` and validates the coverage of the `users_app` job. No
+pull request to `main` and validates the coverage of each application job,
+including `card_worker`. No
 language other than Python and no testing framework other than pytest are used
 in this project, so no additional toolchain section is required.
 

@@ -48,3 +48,15 @@ module "rf005_repository" {
   repository_name  = var.rf005_repository_name
 }
 
+module "credit_cards_repository" {
+  source = "../../modules/repository"
+  keep_tags_number = var.keep_tags_number
+  repository_name  = var.credit_cards_repository_name
+}
+
+module "card_worker_repository" {
+  source = "../../modules/repository"
+  keep_tags_number = var.keep_tags_number
+  repository_name  = var.card_worker_repository_name
+}
+
