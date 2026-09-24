@@ -1,6 +1,6 @@
 """Unit tests for the RF-003 router: auth gate + core orchestration."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
@@ -23,6 +23,14 @@ from errors import (
 from tests.conftest import FakePosts, FakeRoutes, valid_payload
 
 AUTH = {"Authorization": "Bearer valid-token"}
+
+# Far-in-the-future (yet) anchor for route mocks, computed once at import
+# time so the date-rule invariants never fall behind the real clock.
+FUTURE_START = (
+    datetime.now(timezone.utc)
+    .replace(hour=10, minute=0, second=0, microsecond=0, tzinfo=None)
+    + timedelta(days=30)
+)
 
 
 class UnavailableValidation:
@@ -156,7 +164,8 @@ def test_no_body_returns_400(client: TestClient):
 
 def test_valid_token_and_body_creates_route_and_post(client: TestClient):
     """Happy path: route is created, post is created, 201 documented shape."""
-    response = client.post("/rf003/posts", json=valid_payload(), headers=AUTH)
+    payload = valid_payload()
+    response = client.post("/rf003/posts", json=payload, headers=AUTH)
 
     assert response.status_code == 201
     body = response.json()
@@ -164,7 +173,7 @@ def test_valid_token_and_body_creates_route_and_post(client: TestClient):
     data = body["data"]
     assert set(data) == {"id", "userId", "createdAt", "expireAt", "route"}
     assert data["userId"] == client.fake_users.user_id
-    assert data["expireAt"] == "2026-09-15T10:00:00"
+    assert data["expireAt"] == payload["expireAt"]
     assert set(data["route"]) == {"id", "createdAt"}
     # One route created with the submitted values, one post for the user.
     assert len(client.fake_routes.created) == 1
@@ -178,7 +187,7 @@ def test_existing_route_is_reused(client: TestClient):
     existing = RouteInfo(
         id="route-1",
         flightId="AA001",
-        plannedStartDate=datetime(2026, 10, 1, 10, 0, tzinfo=timezone.utc),
+        plannedStartDate=FUTURE_START,
         createdAt=datetime(2026, 9, 1, tzinfo=timezone.utc),
     )
     client.fake_routes.existing_route = existing
@@ -248,7 +257,10 @@ def test_expire_at_after_planned_start_returns_412(client: TestClient):
     """expireAt after plannedStartDate is rejected before any post call."""
     response = client.post(
         "/rf003/posts",
-        json=valid_payload(expireAt="2026-10-02T00:00:00"),
+        json=valid_payload(
+            expireAt=FUTURE_START.isoformat(),
+            plannedStartDate=(FUTURE_START - timedelta(days=1)).isoformat(),
+        ),
         headers=AUTH,
     )
 
@@ -266,7 +278,7 @@ def test_duplicate_post_returns_412(client: TestClient):
     client.fake_routes.existing_route = RouteInfo(
         id="r1",
         flightId="AA001",
-        plannedStartDate=datetime(2026, 10, 1, 10, 0, tzinfo=timezone.utc),
+        plannedStartDate=FUTURE_START,
     )
 
     response = client.post("/rf003/posts", json=valid_payload(), headers=AUTH)
@@ -318,7 +330,7 @@ def test_posts_service_unavailable_keeps_preexisting_route(client: TestClient):
     existing = RouteInfo(
         id="route-pre",
         flightId="AA001",
-        plannedStartDate=datetime(2026, 10, 1, 10, 0, tzinfo=timezone.utc),
+        plannedStartDate=FUTURE_START,
     )
     client.fake_routes.existing_route = existing
     app.dependency_overrides[get_create_post_use_case] = lambda: CreatePostUseCase(

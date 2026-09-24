@@ -425,6 +425,7 @@ Each application runs independently. Refer to the `README.md` in each folder for
 - [RF-003 Orchestration App](apps/rf003_create_post_app.md)
 - [RF-004 Orchestration App](apps/rf004_create_offer_app.md)
 - [RF-005 Orchestration App](apps/rf005_query_post_app.md)
+- [User Verification Callback App](apps/user_verification_callback.md)
 
 ## Deployment
 
@@ -461,8 +462,10 @@ bash scripts/local-deploy.sh
 
 # 2. Verify: checks pods, services and the ingress; verifies all app
 #    Services are ClusterIP; pings every app through the Ingress paths
-#    only; runs a functional smoke test (user -> auth -> RF-003 create
-#    post -> read post back); and runs the full Postman collections
+#    only; runs a functional smoke test (user -> login rejected while
+#    not VERIFICADO -> apply the verification status -> auth ->
+#    RF-003 create post -> read post back); and runs the full Postman
+#    collections
 #    (functional + consistency) against http://localhost:80, taking the
 #    relevant deployment down with `kubectl scale` for each consistency
 #    scenario (see "Testing saga consistency with Postman + kubectl").
@@ -725,8 +728,10 @@ curl ${INGRESS}/rf005/ping
 ```
 
 All endpoints should return a `pong` response. The same checks, plus a
-functional smoke test (create user, authenticate, create a post through
-RF-003, read the post back), are automated in `scripts/local-verify.sh`.
+functional smoke test (create user, check that the login is rejected
+while the user is not VERIFICADO, apply the verification status,
+authenticate, create a post through RF-003, read the post back), are
+automated in `scripts/local-verify.sh`.
 
 #### Troubleshooting local deployment
 

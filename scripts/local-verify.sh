@@ -13,8 +13,11 @@
 #      (ClusterIP services are not externally reachable; the Ingress
 #      is the single entry point for all external traffic).
 #   3. Runs a functional smoke test through the Ingress: creates a
-#      user, authenticates, creates a post with the RF-003
-#      orchestrator and reads the post back from posts_app.
+#      user, checks that the login is rejected while the user is not
+#      VERIFICADO, applies the verification status (the same PATCH the
+#      verification callback component performs), authenticates,
+#      creates a post with the RF-003 orchestrator and reads the post
+#      back from posts_app.
 #
 # Usage (from the repository root, cluster already deployed):
 #   bash scripts/local-verify.sh
@@ -225,7 +228,8 @@ fi
 
 # ------------------------------------------------------------
 # 3. Functional smoke test through the Ingress
-#    (user -> auth -> RF-003 create post -> read post back)
+#    (user -> login rejected while not VERIFICADO -> apply the
+#     verification status -> auth -> RF-003 create post -> read back)
 # ------------------------------------------------------------
 echo "==> [3/5] Functional smoke test through the Ingress"
 
@@ -260,12 +264,43 @@ curl -s --max-time 10 -o "$TMP_BODY" -w "%{http_code}" -X POST "${INGRESS}/users
       }" > "$TMP_BODY.code" 2>/dev/null || echo 000 > "$TMP_BODY.code"
 CODE="$(cat "$TMP_BODY.code")"
 if [ "$CODE" = "201" ]; then
+  USER_ID="$(json_field "$TMP_BODY" id)"
   pass "POST /users -> 201 (user ${USERNAME})"
 else
+  USER_ID=""
   fail "POST /users -> ${CODE} (expected 201) body: $(cat "$TMP_BODY")"
 fi
 
-# 3.2 Authenticate and get a bearer token
+# 3.2 Login is rejected while the user is not VERIFICADO (RF-007):
+#     a POR_VERIFICAR or NO_VERIFICADO user cannot obtain a token.
+if [ -n "$USER_ID" ]; then
+  curl -s --max-time 10 -o "$TMP_BODY" -w "%{http_code}" -X POST "${INGRESS}/users/auth" \
+    -H "Content-Type: application/json" \
+    -d "{\"username\": \"${USERNAME}\", \"password\": \"Secret123!\"}" > "$TMP_BODY.code" 2>/dev/null || echo 000 > "$TMP_BODY.code"
+  CODE="$(cat "$TMP_BODY.code")"
+  if [ "$CODE" = "401" ]; then
+    pass "POST /users/auth -> 401 while the user is POR_VERIFICAR"
+  else
+    fail "POST /users/auth -> ${CODE} (expected 401 while unverified)"
+  fi
+
+  # 3.3 Apply the verification result the same way the verification
+  #     callback component does. The local Minikube deployment does not
+  #     run that component, so the TrueNative webhook cannot arrive on
+  #     its own; the platform exposes the same status update through
+  #     PATCH /users/{id}.
+  curl -s --max-time 10 -o "$TMP_BODY" -w "%{http_code}" -X PATCH "${INGRESS}/users/${USER_ID}" \
+    -H "Content-Type: application/json" \
+    -d '{"status": "VERIFICADO"}' > "$TMP_BODY.code" 2>/dev/null || echo 000 > "$TMP_BODY.code"
+  CODE="$(cat "$TMP_BODY.code")"
+  if [ "$CODE" = "200" ]; then
+    pass "PATCH /users/{id} -> 200 (status VERIFICADO applied)"
+  else
+    fail "PATCH /users/{id} -> ${CODE} (expected 200) body: $(cat "$TMP_BODY")"
+  fi
+fi
+
+# 3.4 Authenticate and get a bearer token
 curl -s --max-time 10 -o "$TMP_BODY" -w "%{http_code}" -X POST "${INGRESS}/users/auth" \
   -H "Content-Type: application/json" \
   -d "{\"username\": \"${USERNAME}\", \"password\": \"Secret123!\"}" > "$TMP_BODY.code" 2>/dev/null || echo 000 > "$TMP_BODY.code"
@@ -278,7 +313,7 @@ else
   fail "POST /users/auth -> ${CODE} (expected 200)"
 fi
 
-# 3.3 Create a post through the RF-003 orchestrator
+# 3.5 Create a post through the RF-003 orchestrator
 if [ -n "$TOKEN" ]; then
   START="$(python3 -c 'from datetime import datetime,timedelta,timezone; print((datetime.now(timezone.utc)+timedelta(days=10)).isoformat())')"
   END="$(python3 -c 'from datetime import datetime,timedelta,timezone; print((datetime.now(timezone.utc)+timedelta(days=11)).isoformat())')"
@@ -304,7 +339,7 @@ if [ -n "$TOKEN" ]; then
     fail "POST /rf003/posts -> ${CODE} (expected 201) body: $(cat "$TMP_BODY")"
   fi
 
-  # 3.4 Read the post back directly from posts_app through the Ingress
+  # 3.6 Read the post back directly from posts_app through the Ingress
   if [ -n "$POST_ID" ]; then
     CODE="$(http_code "${INGRESS}/posts/${POST_ID}")"
     if [ "$CODE" = "200" ]; then
@@ -314,7 +349,7 @@ if [ -n "$TOKEN" ]; then
     fi
   fi
 
-  # 3.5 RF-004 check: POST an offer for a nonexistent post. The real app
+  # 3.7 RF-004 check: POST an offer for a nonexistent post. The real app
   #     answers 403 (post does not exist). A 503 would mean broken routing.
   CODE="$(http_code "${INGRESS}/rf004/posts/00000000-0000-0000-0000-000000000000/offers" \
     -X POST -H "Content-Type: application/json" \
@@ -325,7 +360,7 @@ if [ -n "$TOKEN" ]; then
     fail "POST /rf004/posts/{nonexistent}/offers -> ${CODE} (expected 403)"
   fi
 
-  # 3.6 RF-005 check: query the post we just created (we own it) with our
+  # 3.8 RF-005 check: query the post we just created (we own it) with our
   #     token. The real app answers 200 with the post + offers + score.
   CODE="$(http_code "${INGRESS}/rf005/posts/${POST_ID:-00000000-0000-0000-0000-000000000000}" \
     -H "Authorization: Bearer ${TOKEN}")"

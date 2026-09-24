@@ -4,6 +4,8 @@ from sqlalchemy.orm import Session
 
 from adapters.database.connection import build_session_factory
 from adapters.database.user_repository_adapter import SQLAlchemyUserRepositoryAdapter
+from adapters.truenative.verification_adapter import TrueNativeVerificationAdapter
+from domain.ports.truenative_port import TrueNativeVerificationPort
 from domain.ports.user_repository_port import UserRepositoryPort
 from domain.use_cases.authenticate_user_use_case import AuthenticateUserUseCase
 from domain.use_cases.base_use_case import BaseUseCase
@@ -29,9 +31,17 @@ def get_user_repository(session: Session) -> UserRepositoryPort:
     return SQLAlchemyUserRepositoryAdapter(session)
 
 
+def get_truenative_verification_provider() -> TrueNativeVerificationPort:
+    """Build the TrueNative verification provider."""
+    return TrueNativeVerificationAdapter()
+
+
 def get_create_user_use_case(session: Session) -> BaseUseCase:
     """Build the create-user use case."""
-    return CreateUserUseCase(get_user_repository(session))
+    return CreateUserUseCase(
+        get_user_repository(session),
+        get_truenative_verification_provider(),
+    )
 
 
 def get_authenticate_user_use_case(session: Session) -> BaseUseCase:

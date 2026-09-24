@@ -21,10 +21,16 @@ from entrypoints.api.schemas.user_schemas import (
     CreateUserResponse,
     MeUserResponse,
     ResetUsersResponse,
+    UpdatedUser,
     UpdateUserRequest,
     UpdateUserResponse,
 )
-from errors import InvalidTokenError, UserAlreadyExistsError, UserNotFoundError
+from errors import (
+    InvalidTokenError,
+    UserAlreadyExistsError,
+    UserNotFoundError,
+    UserNotVerifiedError,
+)
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -68,12 +74,18 @@ def authenticate_user(
     payload: AuthUserRequest,
     session: Session = Depends(get_db_session),
 ):
-    """Authenticate a user and issue an opaque token."""
+    """Authenticate a user and issue an opaque token.
+
+    The token is only issued when the user is VERIFICADO; a POR_VERIFICAR
+    or NO_VERIFICADO user is rejected with 401 (RF-007).
+    """
     use_case: BaseUseCase = get_authenticate_user_use_case(session)
     try:
         user = use_case.execute(username=payload.username, password=payload.password)
     except UserNotFoundError:
         return Response(status_code=404)
+    except UserNotVerifiedError:
+        return Response(status_code=401)
 
     return AuthUserResponse(
         id=user.id,
@@ -129,10 +141,15 @@ def update_user(
     payload: UpdateUserRequest,
     session: Session = Depends(get_db_session),
 ):
-    """Update allowed public profile fields for a user (no auth required)."""
+    """Update allowed public profile fields for a user (no auth required).
+
+    The answer includes the updated user record so the internal caller
+    (the identity verification callback) can build the result email from
+    the data the platform persists.
+    """
     use_case: BaseUseCase = get_update_user_use_case(session)
     try:
-        use_case.execute(
+        updated = use_case.execute(
             user_id=user_id,
             fields_set=payload.model_fields_set,
             status=payload.status,
@@ -143,4 +160,17 @@ def update_user(
     except UserNotFoundError:
         return Response(status_code=404)
 
-    return UpdateUserResponse(msg="el usuario ha sido actualizado")
+    return UpdateUserResponse(
+        msg="el usuario ha sido actualizado",
+        user=UpdatedUser(
+            id=updated.id,
+            username=updated.username,
+            email=updated.email,
+            fullName=updated.fullName,
+            dni=updated.dni,
+            phoneNumber=updated.phoneNumber,
+            status=updated.status.value,
+            ruv=updated.ruv,
+            updatedAt=updated.updatedAt.isoformat() if updated.updatedAt else None,
+        ),
+    )

@@ -1,6 +1,6 @@
 """Unit tests for the CreatePostUseCase orchestration."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
@@ -19,12 +19,22 @@ from errors import (
 )
 
 
+# Far-in-the-future (yet) anchor for route mocks, computed once at import
+# time so the date-rule invariants never fall behind the real clock.
+FUTURE_START = (
+    datetime.now(timezone.utc)
+    .replace(hour=10, minute=0, second=0, microsecond=0, tzinfo=None)
+    + timedelta(days=30)
+)
+
+
 def make_payload(**overrides) -> RF003CreatePostRequest:
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     data = {
         "flightId": "AA001",
-        "expireAt": datetime(2026, 9, 15, 10, 0),
-        "plannedStartDate": datetime(2026, 10, 1, 10, 0),
-        "plannedEndDate": datetime(2026, 10, 2, 10, 0),
+        "expireAt": now + timedelta(days=7),
+        "plannedStartDate": now + timedelta(days=30),
+        "plannedEndDate": now + timedelta(days=31),
         "origin": Airport(airportCode="BOG", country="Colombia"),
         "destiny": Airport(airportCode="MAD", country="Spain"),
         "bagCost": 350,
@@ -101,7 +111,7 @@ def test_creates_route_then_post_and_shapes_response():
     route = RouteInfo(
         id="route-1",
         flightId="AA001",
-        plannedStartDate=datetime(2026, 10, 1, 10, 0),
+        plannedStartDate=FUTURE_START,
         createdAt=datetime(2026, 9, 2, 9, 0, tzinfo=timezone.utc),
     )
     created = CreatedPost(
@@ -121,7 +131,7 @@ def test_creates_route_then_post_and_shapes_response():
         "id": "post-1",
         "userId": "u-1",
         "createdAt": "2026-09-02T09:05:00+00:00",
-        "expireAt": "2026-09-15T10:00:00",
+        "expireAt": payload.expireAt.isoformat(),
         "route": {"id": "route-1", "createdAt": "2026-09-02T09:00:00+00:00"},
     }
     # The route was created with the submitted values.
@@ -139,7 +149,7 @@ def test_reuses_existing_route_and_discards_submitted_values():
     existing = RouteInfo(
         id="route-9",
         flightId="AA001",
-        plannedStartDate=datetime(2026, 10, 1, 10, 0),
+        plannedStartDate=FUTURE_START,
         createdAt=datetime(2026, 8, 1, tzinfo=timezone.utc),
     )
     created = CreatedPost(
@@ -188,7 +198,7 @@ def test_expire_at_in_past_is_rejected():
         created=RouteInfo(
             id="r1",
             flightId="AA001",
-            plannedStartDate=datetime(2026, 10, 1, 10, 0),
+            plannedStartDate=FUTURE_START,
         )
     )
     posts = StubPosts()
@@ -205,11 +215,14 @@ def test_expire_at_after_planned_start_is_rejected():
         created=RouteInfo(
             id="r1",
             flightId="AA001",
-            plannedStartDate=datetime(2026, 10, 1, 10, 0),
+            plannedStartDate=FUTURE_START,
         )
     )
     posts = StubPosts()
-    payload = make_payload(expireAt=datetime(2026, 10, 2, 0, 0))
+    payload = make_payload(
+        plannedStartDate=FUTURE_START - timedelta(days=1),
+        expireAt=FUTURE_START + timedelta(days=1),
+    )
 
     with pytest.raises(ExpireAtInvalidError):
         CreatePostUseCase(routes=routes, posts=posts).execute(make_user(), payload)
@@ -221,18 +234,18 @@ def test_expire_at_equal_to_planned_start_is_accepted():
     route = RouteInfo(
         id="r1",
         flightId="AA001",
-        plannedStartDate=datetime(2026, 10, 1, 10, 0),
+        plannedStartDate=FUTURE_START,
     )
     created = CreatedPost(
         id="p1", userId="u-1", createdAt=datetime(2026, 9, 2, tzinfo=timezone.utc)
     )
     routes = StubRoutes(created=route)
     posts = StubPosts(created=created)
-    payload = make_payload(expireAt=datetime(2026, 10, 1, 10, 0))
+    payload = make_payload(plannedStartDate=FUTURE_START, expireAt=FUTURE_START)
 
     CreatePostUseCase(routes=routes, posts=posts).execute(make_user(), payload)
 
-    assert posts.create_calls[0]["expire_at"] == datetime(2026, 10, 1, 10, 0)
+    assert posts.create_calls[0]["expire_at"] == FUTURE_START
 
 
 def test_expire_at_equal_to_now_is_rejected():
@@ -242,7 +255,7 @@ def test_expire_at_equal_to_now_is_rejected():
     route = RouteInfo(
         id="r1",
         flightId="AA001",
-        plannedStartDate=datetime(2026, 10, 1, 10, 0),
+        plannedStartDate=FUTURE_START,
     )
     routes = StubRoutes(created=route)
     posts = StubPosts()
@@ -257,7 +270,7 @@ def test_duplicate_post_is_rejected_before_creation():
         created=RouteInfo(
             id="r1",
             flightId="AA001",
-            plannedStartDate=datetime(2026, 10, 1, 10, 0),
+            plannedStartDate=FUTURE_START,
         )
     )
     posts = StubPosts(has_post=True)
@@ -275,7 +288,7 @@ def test_posts_create_unavailable_is_surfaced():
         created=RouteInfo(
             id="r1",
             flightId="AA001",
-            plannedStartDate=datetime(2026, 10, 1, 10, 0),
+            plannedStartDate=FUTURE_START,
         )
     )
     posts = StubPosts(create_error=PostsServiceUnavailableError("x"))
@@ -292,7 +305,7 @@ def test_posts_create_unavailable_compensates_newly_created_route():
         created=RouteInfo(
             id="route-new",
             flightId="AA001",
-            plannedStartDate=datetime(2026, 10, 1, 10, 0),
+            plannedStartDate=FUTURE_START,
         )
     )
     posts = StubPosts(create_error=PostsServiceUnavailableError("x"))
@@ -311,7 +324,7 @@ def test_posts_create_unavailable_does_not_compensate_preexisting_route():
     existing = RouteInfo(
         id="route-old",
         flightId="AA001",
-        plannedStartDate=datetime(2026, 10, 1, 10, 0),
+        plannedStartDate=FUTURE_START,
     )
     routes = StubRoutes(existing=existing)
     posts = StubPosts(create_error=PostsServiceUnavailableError("x"))
@@ -331,7 +344,7 @@ def test_compensation_failure_does_not_mask_the_503():
         created=RouteInfo(
             id="route-new",
             flightId="AA001",
-            plannedStartDate=datetime(2026, 10, 1, 10, 0),
+            plannedStartDate=FUTURE_START,
         ),
         delete_error=RoutesServiceUnavailableError("routes also down"),
     )
@@ -357,7 +370,7 @@ def test_business_rejections_are_not_compensated():
             created=RouteInfo(
                 id="route-new",
                 flightId="AA001",
-                plannedStartDate=datetime(2026, 10, 1, 10, 0),
+                plannedStartDate=FUTURE_START,
             )
         )
         posts = StubPosts(create_error=error)

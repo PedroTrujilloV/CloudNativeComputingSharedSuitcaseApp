@@ -1,0 +1,1 @@
+"""SNS adapters package tests."""

@@ -19,8 +19,9 @@
 #        - checks pods, services and the ingress
 #        - checks every app endpoint through its NodePort
 #        - checks every app endpoint through the Ingress paths
-#        - runs a functional smoke test (user -> auth -> RF-003
-#          create post -> read post back)
+#        - runs a functional smoke test (user -> login rejected while
+#          not VERIFICADO -> apply the verification status -> auth ->
+#          RF-003 create post -> read post back)
 #
 # This workflow is for team self-testing ONLY. It does not modify
 # or replace any evaluation workflow (ci_entrega1_evaluador_k8s.yml,

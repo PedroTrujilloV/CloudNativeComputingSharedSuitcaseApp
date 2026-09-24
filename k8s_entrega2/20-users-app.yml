@@ -80,6 +80,20 @@ spec:
                 secretKeyRef:
                   name: users-app-secrets
                   key: DB_PASSWORD
+            # TrueNative identity verification (RF-007, T011): the platform is
+            # deployed in the same namespace by k8s_entrega3/k8s-true-native-deployment.yml
+            # (truenative-service) and truenative-secret holds the shared
+            # SECRET_TOKEN; USER_WEBHOOK_URL points at the verification
+            # callback component (T012).
+            - name: TRUE_NATIVE_BASE_URL
+              value: "http://truenative-service"
+            - name: USER_WEBHOOK_URL
+              value: "http://user-verification-callback-service:8000/users/verify/callback"
+            - name: SECRET_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: truenative-secret
+                  key: SECRET_TOKEN
           livenessProbe:
             httpGet:
               path: /users/ping

@@ -18,6 +18,7 @@
 | `salt`        | string                                      | Salt used for password encryption. A random value mixed into the input of the hashing function so that identical passwords produce different hashes. |
 | `token`       | string                                      | User's current token.                                                                                                          |
 | `status`      | string                                      | User status. Only one of these values is valid: **`POR_VERIFICAR`**, **`NO_VERIFICADO`**, **`VERIFICADO`**.                    |
+| `ruv`         | optional string                             | Unique verification record returned by the TrueNative identity verification platform. Stored to correlate the asynchronous verification callback with the user.      |
 | `expireAt`    | datetime                                    | Expiration date and time of the user's last session (generated token).                                                         |
 | `createdAt`   | datetime                                    | Date and time when the user was created.                                                                                       |
 | `updatedAt`   | datetime                                    | Date and time when the user was last updated.                                                                                  |

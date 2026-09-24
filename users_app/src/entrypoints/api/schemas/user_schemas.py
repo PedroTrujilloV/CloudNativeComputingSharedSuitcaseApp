@@ -92,10 +92,31 @@ class UpdateUserRequest(BaseModel):
         return self
 
 
+class UpdatedUser(BaseModel):
+    """The updated user record returned by PATCH /users/{id}.
+
+    It carries the public profile fields plus the verification lifecycle
+    fields (status and RUV) so the internal caller (the identity
+    verification callback) can build the result email from the data the
+    platform persists, without reading the user database directly.
+    """
+
+    id: str
+    username: str
+    email: str
+    fullName: str | None = None
+    dni: str | None = None
+    phoneNumber: str | None = None
+    status: str
+    ruv: str | None = None
+    updatedAt: str | None = None
+
+
 class UpdateUserResponse(BaseModel):
     """Success response for PATCH /users/{id}."""
 
     msg: str
+    user: UpdatedUser
 
 
 class CountUsersResponse(BaseModel):

@@ -128,13 +128,15 @@ The current rule set of the single host is:
 | `/rf005/*` | `rf005-query-post-service` | `rf005_query_post_app` |
 | `/credit-cards/*` | `credit-cards-service` | `credit_cards_app` (Entrega 3) |
 | `/native/*` | `truenative-service` | `truenative` (Entrega 3) |
+| `/users/verify/callback*` | `user-verification-callback-service` | `user_verification_callback` (Entrega 3) |
 
-One planned rule is documented here for completeness: the identity
-verification callback will be routed to `user-verification-callback-service`
-through the same host under the more specific prefix
-`/users/verify/callback` (its rule is added by the callback task). NGINX
-matches the longest prefix first, so that rule will not alter the existing
-`/users/*` behavior.
+The identity verification callback is routed to
+`user-verification-callback-service` through the same host under the more
+specific prefix `/users/verify/callback`. NGINX matches the longest prefix
+first, so that rule does not alter the existing `/users/*` behavior. The
+rule is public and unauthenticated by design (TrueNative cannot supply a
+platform token); the endpoint verifies the SHA256 signature of the message
+as its protection.
 
 The routing rules are also captured graphically in the deployment view
 (`deployment_third_iteration.puml`) and in the new network model

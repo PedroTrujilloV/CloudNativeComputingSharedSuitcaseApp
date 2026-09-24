@@ -1,3 +1,10 @@
+def _mark_verified(client, user_id, status="VERIFICADO"):
+    """Apply a verification status the way the callback component does."""
+    response = client.patch(f"/users/{user_id}", json={"status": status})
+    assert response.status_code == 200
+    return response
+
+
 def _create_and_auth(client):
     create_response = client.post(
         "/users",
@@ -11,6 +18,7 @@ def _create_and_auth(client):
         },
     )
     assert create_response.status_code == 201
+    _mark_verified(client, create_response.json()["id"])
 
     auth_response = client.post(
         "/users/auth",
@@ -45,7 +53,7 @@ def test_get_me_returns_200_profile(client):
     assert body["fullName"] == "Ana Perez"
     assert body["dni"] == "123456"
     assert body["phoneNumber"] == "3001234567"
-    assert body["status"] == "POR_VERIFICAR"
+    assert body["status"] == "VERIFICADO"
     assert "password" not in body
     assert "token" not in body
 
@@ -62,6 +70,20 @@ def test_get_me_with_invalid_token_returns_401(client):
     response = client.get(
         "/users/me",
         headers={"Authorization": f"Bearer {auth['token']}fake"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_get_me_rejects_token_of_user_who_is_no_longer_verified(client):
+    """A token issued while the user was VERIFICADO stops resolving once
+    the status leaves that state (RF-007 token verification gate)."""
+    created, auth = _create_and_auth(client)
+    _mark_verified(client, created["id"], status="NO_VERIFICADO")
+
+    response = client.get(
+        "/users/me",
+        headers={"Authorization": f"Bearer {auth['token']}"},
     )
 
     assert response.status_code == 401

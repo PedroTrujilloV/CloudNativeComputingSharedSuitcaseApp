@@ -34,6 +34,7 @@ class SQLAlchemyUserRepositoryAdapter(UserRepositoryPort):
             salt=user.salt,
             token=user.token,
             status=user.status.value,
+            ruv=user.ruv,
             expireAt=user.expireAt,
             createdAt=user.createdAt or now,
             updatedAt=user.updatedAt or now,
@@ -86,9 +87,21 @@ class SQLAlchemyUserRepositoryAdapter(UserRepositoryPort):
         model.salt = user.salt
         model.token = user.token
         model.status = user.status.value
+        model.ruv = user.ruv
         model.expireAt = user.expireAt
         model.updatedAt = _utc_now()
 
+        self.session.commit()
+        self.session.refresh(model)
+        return self._to_domain(model)
+
+    def set_ruv(self, user_id: str, ruv: str) -> User:
+        """Store the RUV on the user without touching status or updatedAt."""
+        model = self.session.get(UserModel, user_id)
+        if not model:
+            raise UserNotFoundError(f"User with id {user_id} not found")
+
+        model.ruv = ruv
         self.session.commit()
         self.session.refresh(model)
         return self._to_domain(model)
@@ -113,6 +126,7 @@ class SQLAlchemyUserRepositoryAdapter(UserRepositoryPort):
             salt=model.salt,
             token=model.token,
             status=UserStatus(model.status),
+            ruv=model.ruv,
             expireAt=model.expireAt,
             createdAt=model.createdAt,
             updatedAt=model.updatedAt,

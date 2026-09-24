@@ -27,6 +27,7 @@ class UserModel(Base):
     salt: Mapped[str] = mapped_column(String(255), nullable=False)
     token: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
+    ruv: Mapped[str | None] = mapped_column(String(255), nullable=True)
     expireAt: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     createdAt: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     updatedAt: Mapped[datetime] = mapped_column(DateTime, nullable=False)

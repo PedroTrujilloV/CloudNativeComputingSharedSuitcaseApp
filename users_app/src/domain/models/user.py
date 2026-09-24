@@ -26,6 +26,10 @@ class User(BaseModel):
     salt: str = Field(min_length=1)
     token: str | None = None
     status: UserStatus = UserStatus.POR_VERIFICAR
+    ruv: str | None = Field(
+        default=None,
+        description="Unique verification record returned by TrueNative",
+    )
     expireAt: datetime | None = None
     createdAt: datetime | None = None
     updatedAt: datetime | None = None

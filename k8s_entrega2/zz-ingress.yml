@@ -130,3 +130,16 @@ spec:
                 name: credit-cards-service
                 port:
                   number: 80
+
+          # User Verification Callback (Entrega 3, RF-007)
+          # More specific than /users: NGINX matches the longest prefix
+          # first, so this does not alter the existing /users/* behavior.
+          # Public and unauthenticated by design (TrueNative cannot supply a
+          # platform token); the SHA256 signature is the only protection.
+          - pathType: Prefix
+            path: /users/verify/callback
+            backend:
+              service:
+                name: user-verification-callback-service
+                port:
+                  number: 8000

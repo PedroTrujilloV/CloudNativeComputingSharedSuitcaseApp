@@ -49,6 +49,41 @@ class Settings:
         return os.getenv("DB_PASSWORD", "")
 
     @classmethod
+    @property
+    def truenative_base_url(self) -> str:
+        """Base URL of the TrueNative platform (verify and cards APIs).
+
+        Defaults to the in-cluster service name of the TrueNative
+        deployment (k8s_entrega3/k8s-true-native-deployment.yml).
+        """
+        return os.getenv("TRUE_NATIVE_BASE_URL", "http://truenative-service")
+
+    @classmethod
+    @property
+    def truenative_secret_token(self) -> str:
+        """Secret token sent to TrueNative as a Bearer credential.
+
+        Must match the SECRET_TOKEN environment variable of the TrueNative
+        deployment; it is provided through the environment and never
+        hardcoded in source.
+        """
+        return os.getenv("SECRET_TOKEN", "")
+
+    @classmethod
+    @property
+    def user_webhook_url(self) -> str:
+        """Absolute URL where TrueNative delivers the verification result.
+
+        Points at the public callback of the user verification callback
+        component (TASK-012). TrueNative resolves the URL directly, so it
+        must be an absolute http(s) URL reachable from the platform.
+        """
+        return os.getenv(
+            "USER_WEBHOOK_URL",
+            "http://user-verification-callback-service:8000/users/verify/callback",
+        )
+
+    @classmethod
     def database_url(cls) -> str:
         """Build the SQLAlchemy URL.
 

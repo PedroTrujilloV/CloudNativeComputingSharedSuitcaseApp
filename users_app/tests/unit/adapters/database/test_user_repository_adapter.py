@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -83,6 +85,47 @@ def test_update_and_delete_all(repository):
 
     repository.delete_all()
     assert repository.count() == 0
+
+
+def test_create_persists_ruv(repository):
+    user = _build_user()
+    user.ruv = "RUV-abc-123"
+
+    created = repository.create(user)
+
+    assert created.ruv == "RUV-abc-123"
+    assert repository.get_by_id(created.id).ruv == "RUV-abc-123"
+    assert repository.get_by_username("ana").ruv == "RUV-abc-123"
+
+
+def test_create_without_ruv_persists_none(repository):
+    created = repository.create(_build_user())
+
+    assert created.ruv is None
+    assert repository.get_by_id(created.id).ruv is None
+
+
+def test_update_stores_new_ruv(repository):
+    created = repository.create(_build_user())
+
+    created.ruv = "RUV-xyz-789"
+    updated = repository.update(created)
+
+    assert updated.ruv == "RUV-xyz-789"
+    assert repository.get_by_id(created.id).ruv == "RUV-xyz-789"
+
+
+def test_status_transition_updates_updated_at(repository):
+    created = repository.create(_build_user())
+    stale = created.updatedAt - timedelta(days=1)
+    created.updatedAt = stale
+    created.status = UserStatus.VERIFICADO
+
+    updated = repository.update(created)
+
+    assert updated.status == UserStatus.VERIFICADO
+    assert updated.updatedAt > stale
+    assert repository.get_by_id(created.id).updatedAt == updated.updatedAt
 
 
 def test_update_missing_user_raises(repository):

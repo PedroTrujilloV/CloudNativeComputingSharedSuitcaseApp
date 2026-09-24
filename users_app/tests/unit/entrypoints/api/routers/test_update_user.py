@@ -27,14 +27,29 @@ def test_update_user_returns_200_and_confirmation_message(client):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"msg": "el usuario ha sido actualizado"}
+    body = response.json()
+    assert body["msg"] == "el usuario ha sido actualizado"
+    # The updated user record is returned so the internal caller (the
+    # verification callback) can build the result email from the data the
+    # platform persists.
+    user = body["user"]
+    assert user["id"] == user_id
+    assert user["username"] == "ana_user"
+    assert user["email"] == "ana@example.com"
+    assert user["dni"] == "999888"
+    assert user["fullName"] == "Ana Updated"
+    assert user["phoneNumber"] == "3110000000"
+    assert user["status"] == "VERIFICADO"
+    # The test fake TrueNative provider stores a RUV at creation time.
+    assert user["ruv"] is not None
+    assert user["updatedAt"] is not None
 
 
 def test_update_user_persists_changes_visible_via_me(client):
     user_id = _create_user(client)
     client.patch(
         f"/users/{user_id}",
-        json={"fullName": "Ana Updated", "status": "NO_VERIFICADO"},
+        json={"fullName": "Ana Updated", "status": "VERIFICADO"},
     )
 
     auth = client.post(
@@ -46,7 +61,7 @@ def test_update_user_persists_changes_visible_via_me(client):
 
     assert me.status_code == 200
     assert me.json()["fullName"] == "Ana Updated"
-    assert me.json()["status"] == "NO_VERIFICADO"
+    assert me.json()["status"] == "VERIFICADO"
 
 
 def test_update_user_unknown_id_returns_404(client):

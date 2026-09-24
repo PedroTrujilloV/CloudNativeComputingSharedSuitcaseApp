@@ -1,6 +1,6 @@
 """Test helpers for the RF-003 orchestrator."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
@@ -17,17 +17,34 @@ from entrypoints.api.deps import (
 from entrypoints.api.main import app
 
 
+def _valid_dates() -> dict[str, str]:
+    """Future relative dates that always satisfy the RF-003 rules.
+
+    ``now < expireAt <= plannedStartDate < plannedEndDate`` (all in the
+    future relative to the run time), so the payload stays valid no matter
+    when the suite is executed.
+    """
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(days=7)
+    start = now + timedelta(days=30)
+    end = now + timedelta(days=31)
+    return {
+        "expireAt": expire.isoformat(),
+        "plannedStartDate": start.isoformat(),
+        "plannedEndDate": end.isoformat(),
+    }
+
+
 def valid_payload(**overrides) -> dict:
     """A well-formed RF-003 request body.
 
     ``expireAt`` must be in the future and on/before ``plannedStartDate``
-    for the core orchestration to accept it (RF-003 rule).
+    for the core orchestration to accept it (RF-003 rule). Dates are
+    computed relative to now so the helper never goes stale.
     """
     payload = {
         "flightId": "AA001",
-        "expireAt": "2026-09-15T10:00:00",
-        "plannedStartDate": "2026-10-01T10:00:00",
-        "plannedEndDate": "2026-10-02T10:00:00",
+        **_valid_dates(),
         "origin": {"airportCode": "BOG", "country": "Colombia"},
         "destiny": {"airportCode": "MAD", "country": "Spain"},
         "bagCost": 350,

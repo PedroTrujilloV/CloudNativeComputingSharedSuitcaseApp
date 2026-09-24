@@ -50,6 +50,8 @@
 ├── rf003_create_post_app/           # RF-003 orchestrator (Entrega 2)
 ├── rf004_create_offer_app/          # RF-004 orchestrator (Entrega 2)
 ├── rf005_query_post_app/            # RF-005 orchestrator (Entrega 2)
+├── user_verification_callback/      # RF-007 verification callback receiver + result email (Entrega 3)
+│   └── README.md                    # App structure, tests, env vars, config, execution
 │
 ├── k8s/                             # Legacy Entrega 1 manifests (users-app.yaml, etc.)
 ├── k8s_entrega2/                    # Entrega 2 manifests (secrets, apps, ingress, local-db)
@@ -196,6 +198,194 @@ The `Score` (Utilidad) entity persists one current score per offer:
 | `updatedAt` | datetime | Last update timestamp (UTC)                                  |
 
 A missing score for an offer is represented by the absence of a row, which the API reads as `score: null` (null-safe, never an error).
+
+### users_app schema change for RF-007 (Entrega 3)
+
+The `users` table gained one column, `ruv`, so the service can store the unique
+verification record returned by TrueNative and correlate the asynchronous
+verification callback with the user. The existing columns were not renamed or
+duplicated: `status` already supports the `POR_VERIFICAR`, `VERIFICADO`, and
+`NO_VERIFICADO` values, and `updatedAt` is rewritten with the current UTC date
+on every update, including on every status transition.
+
+| Column | Type     | Notes |
+| ------ | -------- | ----- |
+| `ruv`  | string   | Optional. Unique verification record returned by TrueNative, stored for traceability and callback correlation |
+
+The schema is created on application startup through the SQLAlchemy model
+(`init_db()` in `users_app/src/adapters/database/connection.py`), so a fresh
+database picks the new column up automatically.
+
+### TrueNative verification trigger in users_app (RF-007, T011)
+
+User creation now triggers the TrueNative identity verification. The flow
+follows the RF-007 sequence view: the user is persisted first with status
+`POR_VERIFICAR`, and then the service calls TrueNative `POST /native/verify`
+as a normal synchronous request response call while the creation request is
+still open.
+
+The integration follows the usual port and adapter pattern:
+
+| Piece | Location |
+| ----- | -------- |
+| Port | `users_app/src/domain/ports/truenative_port.py` (`TrueNativeVerificationPort`) |
+| Adapter | `users_app/src/adapters/truenative/verification_adapter.py` (`TrueNativeVerificationAdapter`) |
+| Use case | `users_app/src/domain/use_cases/create_user_use_case.py` |
+| Wiring | `users_app/src/entrypoints/api/deps.py` (`get_truenative_verification_provider`) |
+
+The adapter sends every user field that has a value (`email`, `dni`,
+`fullName`, and `phone` for the domain `phoneNumber`), the value that
+identifies the user locally (`userIdentifier`), a fresh UUID per request as
+`transactionIdentifier`, and the absolute callback URL (`userWebhook`,
+`USER_WEBHOOK_URL`). The request carries the `Authorization: Bearer
+<SECRET_TOKEN>` header and answers with `201` plus the RUV, which the use
+case stores on the user record through `set_ruv` without touching `status`
+or `updatedAt`.
+
+Provider failures are explicit and never swallowed. A rejection status
+(`400`, `401`, `403`, or `409`, or any other error status) raises
+`TrueNativeRequestError`; a connection failure, a timeout, or a malformed
+success body raises `TrueNativeUnreachableError` (both in
+`users_app/src/errors.py`). In every failure case the use case marks the
+user `NO_VERIFICADO` (refreshing `updatedAt`), the rejection is logged with
+the transaction identifier and the status code, and the creation still
+answers `201` with `{id, createdAt}`: the user exists, and the outcome can
+be fixed later. The webhook callback that applies the final status is
+handled by the `user_verification_callback` component (described in the
+next section).
+
+The integration is configured through environment variables (see
+`users_app/README.md`): `TRUE_NATIVE_BASE_URL` (defaults to the in-cluster
+service `http://truenative-service`), `SECRET_TOKEN` (provided through the
+`truenative-secret` Secret, never hardcoded), and `USER_WEBHOOK_URL`. The
+AWS users-app Deployment (`k8s_entrega2/20-users-app.yml`) declares the three
+variables; the legacy Minikube manifest under `k8s/` keeps working without
+them because the defaults point at the same service names and the defined
+failure behavior keeps creation answering `201` when TrueNative is absent.
+
+### User verification callback receiver (RF-007, T012)
+
+The verification result arrives later, when TrueNative calls the
+`userWebhook` URL with a `PATCH` carrying `{RUV, userIdentifier,
+transactionIdentifier, createdAt, status, score, verifyToken}`. The receiver
+is a dedicated app (`user_verification_callback/`), separate from
+`users_app`, for two reasons: `users_app` stays free of unauthenticated
+routes, and the receiver owns no data store (it updates the user through the
+Users service API, so the user data stays in the shared RDS instance under
+the `users` schema).
+
+The public endpoint is `PATCH /users/verify/callback` (reachable through the
+single ingress host under the more specific prefix `/users/verify/callback`,
+so the existing `/users/*` behavior is unchanged). It is unauthenticated by
+design (TrueNative cannot supply a platform token), and its only protection
+is the signature check: `verifyToken` must equal
+`sha256(f"{SECRET_TOKEN}:{RUV}:{SCORE}")`, computed over the exact textual
+form of the JSON `score` value (integer or float, never coerced) and
+compared in constant time. The secret is the same `SECRET_TOKEN` that
+TrueNative uses (both deployments read the `truenative-secret` Secret).
+
+After a valid signature, the status is computed from the score with the
+team threshold: `VERIFICADO` when the score is greater than 60,
+`NO_VERIFICADO` when it is 60 or lower (the `status` field carried by the
+provider is never trusted). The change is applied with a normal synchronous
+`PATCH /users/{userIdentifier}` call to the Users service, which refreshes
+`updatedAt` and answers the updated user record. The receiver then publishes
+the result email synchronously to the RF-007 SNS topic from that persisted
+record (the email notification of T013, described below). Whatever the
+outcome (applied, signature mismatch, unknown user, or Users service error),
+the endpoint answers `200` to TrueNative on a well-formed receipt, and only a
+structurally malformed body answers `400`. The receiver runs no background
+task, thread, or asyncio construct: the whole flow (update and email
+publish) is a synchronous request/response inside the callback request,
+which keeps the web component within the course restriction on
+asynchronous execution.
+
+Deployment: the image is built and published like the other apps (the
+`user_verification_callback` entry in `config.yaml` `apps`), the workload
+lives in `k8s_entrega2/28-user-verification-callback.yml` (Deployment
+`user-verification-callback` + ClusterIP Service
+`user-verification-callback-service`, which is exactly the target of
+`USER_WEBHOOK_URL` in `20-users-app.yml`), and the ingress rule is in
+`k8s_entrega2/zz-ingress.yml`. The unit-test pipeline gains a
+`user_verification_callback` job in `ci_evaluador_unit.yml`.
+
+### Identity verification result email (RF-007, T013)
+
+The RF-007 acceptance criteria mandate an email for every finished
+verification, regardless of the outcome: the target address must receive
+a message with the final status, the RUV generated by TrueNative, and the
+user data used in the verification process, and the content must be
+consistent with what the platform persists.
+
+The producer is the `user_verification_callback` service, as the team
+docs define it: right after the status update is applied inside the
+callback request, the use case publishes the result email to the
+`grupo33-user-verification-notifications` SNS topic (provisioned by the
+`4_sns` Terraform stack, one topic per requirement of Entrega 3). The
+publish is a plain synchronous boto3 call inside the callback request, so
+the component stays free of the forbidden asynchronous patterns. The
+recipient is never in the code: the topic has a single email
+subscription whose endpoint is the `EMAIL_TO_NOTIFY` value read from the
+`secrets-pipeline-native-map` secret at plan time, and a rejected or
+unconfigured notification never undoes the already applied status change
+(the endpoint keeps answering `200` to TrueNative).
+
+The email content comes from the user record the platform persists: the
+`PATCH /users/{id}` endpoint of `users_app` now answers the updated user
+in addition to the confirmation message (the `user` block with `id`,
+`username`, `email`, `dni`, `fullName`, `phoneNumber`, `status`, `ruv`
+and `updatedAt`), so the callback builds the email from the exact data
+the status update stored, and the status stated in the email is the
+status persisted in the platform. Absent profile fields are shown as
+`Not provided`. The topic ARN reaches the workload through the
+`${USER_VERIFICATION_TOPIC_ARN}` envsubst placeholder in
+`k8s_entrega2/28-user-verification-callback.yml` (the deploy pipeline
+exports the `user_verification_topic_arn` output of the `4_sns` stack),
+and the publish uses the cluster node role credentials through the
+default boto3 chain. When the topic ARN is empty (local runs without the
+AWS stack) the composed email is logged and the delivery is skipped with
+a warning, so the flow keeps working end to end locally.
+
+### Token gating by verification status (RF-007, T014)
+
+The Enunciado approves, in advance, exactly one additional change to
+`users_app` beyond the RF-007 flow: the service must not generate or
+verify tokens for a user that is not `VERIFICADO`. Because `users_app`
+is the only component that issues and validates session tokens, two
+checks cover the whole platform:
+
+| Check | Location | Behavior |
+| ----- | -------- | -------- |
+| Token generation | `users_app/src/domain/use_cases/authenticate_user_use_case.py` | Once the credentials are validated, the status must be `VERIFICADO`. A `POR_VERIFICAR` or `NO_VERIFICADO` user raises the new `UserNotVerifiedError` (`users_app/src/errors.py`), and `POST /users/auth` answers `401` without storing a token |
+| Token verification | `users_app/src/domain/use_cases/get_current_user_use_case.py` | Once the token is resolved and its expiration is checked, the owner must still be `VERIFICADO`. Otherwise the existing `InvalidTokenError` is raised and `GET /users/me` answers `401` |
+
+The verification check is the one every other service relies on: the
+RF-003, RF-004 and RF-005 orchestrators, and the RF-006 credit cards
+component, validate the caller token by calling `GET /users/me`, so a
+token owned by a user that is not `VERIFICADO` stops resolving
+everywhere without touching those services. Both rejections are logged
+at `WARNING` with the username and the status that caused them. The
+rest of the API is unchanged: invalid credentials still answer `404`,
+so the login endpoint does not reveal whether a username exists or
+what its status is, and every other endpoint behaves as before.
+
+The `users_app` unit suite covers both gates at the use case level (a
+token is only issued for a `VERIFICADO` user, no token is stored for
+the other two statuses, and verification rejects unknown, expired, and
+unverified user tokens) and at the router level (the `401` answers of
+`POST /users/auth` and `GET /users/me`), growing the suite from 89 to
+102 tests at 94.69% coverage. The manual end to end verification
+against the real TrueNative platform (both outcomes, plus the token
+rejection after a status change) is documented in `users_app/README.md`,
+in the "Token gating by verification status (RF-007, T014)" section.
+The local verification scripts were updated for the new rule: the
+`scripts/local-verify.sh` smoke test now asserts the `401` while the
+user is `POR_VERIFICAR`, applies the verification status with the same
+`PATCH /users/{id}` the callback component performs, and then
+authenticates, and the local copies of the Entrega 2 Postman
+collections in `scripts/entrega2/` simulate the verification callback
+with a `PATCH /users/{id}` request after each user creation, so the
+RF-003, RF-004 and RF-005 flows keep running with verified users.
 
 ## Testing
 

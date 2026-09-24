@@ -16,6 +16,7 @@ entity "users" as UsersEntity {
   salt : string
   token : string
   status : string
+  ruv : string
   expireAt : datetime
   createdAt : datetime
   updatedAt : datetime

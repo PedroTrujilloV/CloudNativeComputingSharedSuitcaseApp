@@ -59,3 +59,31 @@ def test_database_url_honors_explicit_database_url():
 def test_default_app_name():
     """Application name should come from environment or default."""
     assert Settings.app_name == "users_app"
+
+
+def test_truenative_settings_defaults():
+    """TrueNative settings fall back to the in-cluster deployment values."""
+    with patch.dict(os.environ, {}, clear=False):
+        os.environ.pop("TRUE_NATIVE_BASE_URL", None)
+        os.environ.pop("SECRET_TOKEN", None)
+        os.environ.pop("USER_WEBHOOK_URL", None)
+        assert Settings.truenative_base_url == "http://truenative-service"
+        assert Settings.truenative_secret_token == ""
+        assert Settings.user_webhook_url == (
+            "http://user-verification-callback-service:8000/users/verify/callback"
+        )
+
+
+def test_truenative_settings_from_environment():
+    """TrueNative settings can be overridden with environment variables."""
+    env = {
+        "TRUE_NATIVE_BASE_URL": "http://truenative.example:3000",
+        "SECRET_TOKEN": "top-secret",
+        "USER_WEBHOOK_URL": "http://callback.example/users/verify/callback",
+    }
+    with patch.dict(os.environ, env, clear=False):
+        assert Settings.truenative_base_url == "http://truenative.example:3000"
+        assert Settings.truenative_secret_token == "top-secret"
+        assert (
+            Settings.user_webhook_url == "http://callback.example/users/verify/callback"
+        )

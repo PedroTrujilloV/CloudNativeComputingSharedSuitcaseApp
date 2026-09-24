@@ -156,3 +156,12 @@ apps:
       image_tag: v0.0.0
       authors:
         - pe.trujillo@uniandes.edu.co
+  # Nuevo componente de Entrega 3 (RF-007): receptor publico del callback de
+  # verificacion de identidad de TrueNative. Actualiza el estado del usuario
+  # a traves de la API de users_app.
+  - user_verification_callback:
+      folder: user_verification_callback
+      image_name: user-verification-callback
+      image_tag: v0.0.0
+      authors:
+        - pe.trujillo@uniandes.edu.co

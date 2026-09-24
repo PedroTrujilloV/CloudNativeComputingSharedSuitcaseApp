@@ -1,0 +1,106 @@
+# Kubernetes deployment for user_verification_callback (Entrega 3, RF-007)
+# Stateless callback receiver: no database, only the Users service API call
+# Namespace: default
+#
+# Usage (from repository root):
+#   kubectl apply -f k8s_entrega2/28-user-verification-callback.yml
+#   minikube service user-verification-callback-service --url
+#
+# The SECRET_TOKEN env comes from the truenative-secret defined in
+# k8s_entrega3/k8s-true-native-deployment.yml (applied right after this
+# folder by the deploy pipeline); the pod waits for it the same way the
+# users-app pod does.
+#
+# The USER_VERIFICATION_TOPIC_ARN placeholder is resolved by the envsubst
+# step of the deploy pipeline from the user_verification_topic_arn output
+# of the 4_sns Terraform stack (the ARN of the RF-007 SNS email topic).
+# The topic carries the email subscription to the address configured at
+# deploy time (EMAIL_TO_NOTIFY), so no recipient address appears here.
+---
+# ============================================================
+# user-verification-callback Deployment
+# Stateless callback receiver for the TrueNative verification result
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-verification-callback
+  labels:
+    app: user-verification-callback
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: user-verification-callback
+  template:
+    metadata:
+      labels:
+        app: user-verification-callback
+    spec:
+      containers:
+        - name: user-verification-callback
+          image: ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/user-verification-callback:v0.0.0
+          ports:
+            - containerPort: 8000
+
+          env:
+            - name: APP_NAME
+              value: "user_verification_callback"
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: USERS_SERVICE_URL
+              value: "http://users-app-service:8000"
+            - name: USER_VERIFICATION_TOPIC_ARN
+              value: "${USER_VERIFICATION_TOPIC_ARN}"
+            - name: SECRET_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: truenative-secret
+                  key: SECRET_TOKEN
+
+          livenessProbe:
+            httpGet:
+              path: /users/verify/ping
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /users/verify/ping
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          resources:
+            limits:
+              cpu: "150m"
+              memory: "150Mi"
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+
+---
+# ============================================================
+# user-verification-callback-service (ClusterIP — Ingress-only, no external access)
+# TrueNative reaches it through the same cluster network as the users-app
+# sends the userWebhook to (USER_WEBHOOK_URL in 20-users-app.yml).
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-verification-callback-service
+  labels:
+    app: user-verification-callback
+spec:
+  type: ClusterIP
+  selector:
+    app: user-verification-callback
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP

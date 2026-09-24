@@ -11,6 +11,8 @@ Business rejections (412) are NOT integration failures and pass through
 unchanged, with no compensating action.
 """
 
+from datetime import datetime, timedelta, timezone
+
 import httpx
 from fastapi.testclient import TestClient
 
@@ -27,6 +29,14 @@ STANDARD_503 = {"msg": "El servicio está temporalmente fuera de servicio."}
 
 ROUTES_BASE = "http://routes.test"
 POSTS_BASE = "http://posts.test"
+
+# Far-in-the-future (yet) anchor for mocked route views, computed once at
+# import time so the date-rule invariants never fall behind the real clock.
+FUTURE_START = (
+    datetime.now(timezone.utc)
+    .replace(hour=10, minute=0, second=0, microsecond=0, tzinfo=None)
+    + timedelta(days=30)
+)
 
 
 def _down_handler(request: httpx.Request) -> httpx.Response:
@@ -49,7 +59,7 @@ def _routes_handler(routes_state: dict):
                         {
                             "id": "route-existing-1",
                             "flightId": "EXISTING",
-                            "plannedStartDate": "2026-10-01T10:00:00",
+                            "plannedStartDate": FUTURE_START.isoformat(),
                             "createdAt": "2026-09-01T09:00:00",
                         }
                     ],

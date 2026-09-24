@@ -32,6 +32,15 @@ class UserRepositoryPort(ABC):
         pass
 
     @abstractmethod
+    def set_ruv(self, user_id: str, ruv: str) -> User:
+        """Store the RUV issued by TrueNative on the user record.
+
+        Only the RUV column changes; the status and the updatedAt field are
+        left untouched because storing the RUV is not a status change.
+        """
+        pass
+
+    @abstractmethod
     def count(self) -> int:
         """Count persisted users."""
         pass
