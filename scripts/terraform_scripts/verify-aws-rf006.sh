@@ -56,7 +56,7 @@ set -uo pipefail
 
 cd "$(dirname "$0")/../.."
 
-REGION="${AWS_REGION:-us-east-1}"
+REGION="${REGION:-us-east-1}"
 QUEUE_NAME="${QUEUE_NAME:-grupo33-card-verification}"
 DLQ_NAME="${DLQ_NAME:-grupo33-card-verification-dlq}"
 TABLE_NAME="${TABLE_NAME:-grupo33-credit-cards}"

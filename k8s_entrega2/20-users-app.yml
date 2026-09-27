@@ -43,7 +43,7 @@ spec:
     spec:
       containers:
         - name: users-app
-          image: ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/users-app:v0.0.0
+          image: ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/users-app:v0.0.0
           ports:
             - containerPort: 8000
           env:

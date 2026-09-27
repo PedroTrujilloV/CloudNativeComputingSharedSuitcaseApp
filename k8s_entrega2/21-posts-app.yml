@@ -26,7 +26,7 @@ spec:
     spec:
       containers:
         - name: posts-app
-          image: ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/posts-app:v0.0.0
+          image: ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/posts-app:v0.0.0
           ports:
             - containerPort: 8000
           env:
