@@ -33,7 +33,7 @@ spec:
     spec:
       containers:
         - name: routes-app
-          image: ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/routes-app:v0.0.0
+          image: ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/routes-app:v0.0.0
           ports:
             - containerPort: 8000
 

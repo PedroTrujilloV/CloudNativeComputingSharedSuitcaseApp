@@ -29,7 +29,7 @@ spec:
     spec:
       containers:
         - name: offers-app
-          image: ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/offers-app:v0.0.0
+          image: ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/offers-app:v0.0.0
           ports:
             - containerPort: 8000
           env:

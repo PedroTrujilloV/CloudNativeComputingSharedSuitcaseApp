@@ -13,7 +13,7 @@
 #
 # USER_VERIFICATION_TOPIC_ARN is reconstructed by the envsubst step of
 # the deploy pipeline from the safe user_verification_topic_name output
-# of the 4_sns Terraform stack plus $AWS_REGION and $ACCOUNT_ID (the full
+# of the 4_sns Terraform stack plus $REGION and $ACCOUNT_ID (the full
 # ARN embeds the AWS account id, so it cannot be a terraform output: the
 # pipeline's combined tf_outputs JSON is discarded by GitHub Actions when
 # it contains a secret value). The topic carries the email subscription
@@ -42,7 +42,7 @@ spec:
     spec:
       containers:
         - name: user-verification-callback
-          image: ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/user-verification-callback:v0.0.0
+          image: ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/user-verification-callback:v0.0.0
           ports:
             - containerPort: 8000
 
@@ -61,9 +61,9 @@ spec:
               # tf_outputs (GitHub Actions discards job outputs containing a
               # secret value). The safe topic name comes from the
               # user_verification_topic_name output of the 4_sns stack;
-              # AWS_REGION and ACCOUNT_ID are provided by the pipeline
+              # REGION and ACCOUNT_ID are provided by the pipeline
               # itself.
-              value: "arn:aws:sns:${AWS_REGION}:${ACCOUNT_ID}/${USER_VERIFICATION_TOPIC_NAME}"
+              value: "arn:aws:sns:${REGION}:${ACCOUNT_ID}/${USER_VERIFICATION_TOPIC_NAME}"
             - name: SECRET_TOKEN
               valueFrom:
                 secretKeyRef:

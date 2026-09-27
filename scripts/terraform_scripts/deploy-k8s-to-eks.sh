@@ -136,16 +136,16 @@ replace_image_placeholder() {
   fi
 
   echo "    updating ${manifest} (${image})"
-  echo "      \${ACCOUNT_ID}.dkr.ecr.\${AWS_REGION} -> ${ECR_REGISTRY}"
+  echo "      \${ACCOUNT_ID}.dkr.ecr.\${REGION} -> ${ECR_REGISTRY}"
 
   # The manifests carry the placeholders
-  # ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/<image>:<tag>;
+  # ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/<image>:<tag>;
   # replace them with the real account and region of this deployment.
   sed -i '' "s|\${ACCOUNT_ID}|${ACCOUNT_ID}|g" "${manifest}"
-  sed -i '' "s|\${AWS_REGION}|${REGION}|g" "${manifest}"
+  sed -i '' "s|\${REGION}|${REGION}|g" "${manifest}"
 
   # Make sure no placeholder remains.
-  if grep -q '${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}' "${manifest}"; then
+  if grep -q '${ACCOUNT_ID}.dkr.ecr.${REGION}' "${manifest}"; then
     echo "ERROR: Image placeholder was not fully replaced in ${manifest}" >&2
     exit 1
   fi
@@ -361,7 +361,7 @@ echo "    rendered ${DEPLOY_DIR}/k8s-true-native-deployment.yml with SECRET_TOKE
 #     stack outputs (the stacks must be applied before this step,
 #     which the pipeline order guarantees); the full queue URL is
 #     reconstructed inside the manifest from the safe queue name
-#     plus $ACCOUNT_ID and $AWS_REGION (the full URL embeds the
+#     plus $ACCOUNT_ID and $REGION (the full URL embeds the
 #     account id, so it cannot be a terraform output). The token
 #     itself comes from the truenative-secret created by the
 #     TrueNative manifest, so this manifest only references the
@@ -417,13 +417,13 @@ echo "    the active session can access the table ${CREDIT_CARDS_TABLE_NAME}"
 
 export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
 
-ACCOUNT_ID="${ACCOUNT_ID}" AWS_REGION="${REGION}" \
+ACCOUNT_ID="${ACCOUNT_ID}" REGION="${REGION}" \
 CREDIT_CARDS_TABLE_NAME="${CREDIT_CARDS_TABLE_NAME}" \
 CARD_VERIFICATION_QUEUE_NAME="${CARD_VERIFICATION_QUEUE_NAME}" \
 AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}" \
 AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}" \
 AWS_SESSION_TOKEN="${AWS_SESSION_TOKEN}" \
-envsubst '${ACCOUNT_ID} ${AWS_REGION} ${CREDIT_CARDS_TABLE_NAME} ${CARD_VERIFICATION_QUEUE_NAME} ${AWS_ACCESS_KEY_ID} ${AWS_SECRET_ACCESS_KEY} ${AWS_SESSION_TOKEN}' \
+envsubst '${ACCOUNT_ID} ${REGION} ${CREDIT_CARDS_TABLE_NAME} ${CARD_VERIFICATION_QUEUE_NAME} ${AWS_ACCESS_KEY_ID} ${AWS_SECRET_ACCESS_KEY} ${AWS_SESSION_TOKEN}' \
   < "k8s_entrega3/k8s-credit-cards-deployment.yml" > "${DEPLOY_DIR}/k8s-credit-cards-deployment.yml"
 echo "    rendered ${DEPLOY_DIR}/k8s-credit-cards-deployment.yml (table=${CREDIT_CARDS_TABLE_NAME}, queue=${CARD_VERIFICATION_QUEUE_NAME})"
 
@@ -432,7 +432,7 @@ echo "    rendered ${DEPLOY_DIR}/k8s-credit-cards-deployment.yml (table=${CREDIT
 #      full topic ARN is reconstructed inside the manifest from the
 #      safe user_verification_topic_name output of the 4_sns stack
 #      (the topic that carries the email subscription to
-#      EMAIL_TO_NOTIFY) plus $ACCOUNT_ID and $AWS_REGION (the ARN
+#      EMAIL_TO_NOTIFY) plus $ACCOUNT_ID and $REGION (the ARN
 #      embeds the account id, so it cannot be a terraform output);
 #      the account/region parts were already replaced by the image
 #      placeholder pass above. The SECRET_TOKEN comes from the

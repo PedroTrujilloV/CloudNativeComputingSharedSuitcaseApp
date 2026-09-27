@@ -28,7 +28,7 @@ spec:
     spec:
       containers:
         - name: rf003-create-post-app
-          image: ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/rf003-create-post-app:v0.0.0
+          image: ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/rf003-create-post-app:v0.0.0
           ports:
             - containerPort: 8000
 

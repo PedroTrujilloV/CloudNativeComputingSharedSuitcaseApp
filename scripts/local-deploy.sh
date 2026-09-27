@@ -41,7 +41,7 @@ cd "$(dirname "$0")/.."
 REPO_ROOT="$(pwd)"
 
 ACCOUNT_ID="000000000000" #"$(aws sts get-caller-identity --query Account --output text)"
-AWS_REGION="us-east-1"
+REGION="us-east-1"
 # ------------------------------------------------------------
 # 1. Clean: remove old clusters, images and containers
 # ------------------------------------------------------------
@@ -77,7 +77,7 @@ build_app() {
     exit 1
   fi
   echo "    building ${image} from ${folder}/"
-  local uri="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${image}"
+  local uri="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${image}"
   docker build -t "${uri}" -f "${folder}/Dockerfile" "${folder}" >/dev/null
 }
 
@@ -115,17 +115,17 @@ replace_image_placeholder() {
     exit 1
   fi
 
-  local image_uri="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${image}"
+  local image_uri="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${image}"
 
   echo "    updating ${manifest}"
   echo "      ${image_uri}"
 
-  # Replace the literal placeholder with the ACCOUNT_ID, AWS_REGION image URI.
+  # Replace the literal placeholder with the ACCOUNT_ID, REGION image URI.
   sed -i '' "s|\${ACCOUNT_ID}|${ACCOUNT_ID}|g" "${manifest}"
-  sed -i '' "s|\${AWS_REGION}|${AWS_REGION}|g" "${manifest}"
+  sed -i '' "s|\${REGION}|${REGION}|g" "${manifest}"
 
   # Make sure no placeholder remains.
-  if grep -q '${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}' "${manifest}"; then
+  if grep -q '${ACCOUNT_ID}.dkr.ecr.${REGION}' "${manifest}"; then
     echo "ERROR: Image placeholder was not fully replaced in ${manifest}" >&2
     exit 1
   fi
@@ -145,7 +145,7 @@ replace_image_placeholder "${DEPLOY_DIR}/28-user-verification-callback.yml" "use
 
 # The RF-007 callback manifest carries one placeholder besides the image
 # URI: the topic name part of the USER_VERIFICATION_TOPIC_ARN value. The
-# full ARN is reconstructed in the manifest from $AWS_REGION, $ACCOUNT_ID
+# full ARN is reconstructed in the manifest from $REGION, $ACCOUNT_ID
 # and the safe user_verification_topic_name output of the 4_sns stack (the
 # full ARN embeds the AWS account id and therefore cannot be a terraform
 # output of the pipeline — see the manifest comment). Minikube has no such
@@ -260,12 +260,12 @@ export SECRET_TOKEN_B64="$(printf '%s' "${SECRET_TOKEN}" | base64 | tr -d '\n')"
 
 envsubst < "k8s_entrega3/k8s-true-native-deployment.yml" | kubectl apply -f -
 
-ACCOUNT_ID="${ACCOUNT_ID}" AWS_REGION="${AWS_REGION}" \
+ACCOUNT_ID="${ACCOUNT_ID}" REGION="${REGION}" \
 CREDIT_CARDS_TABLE_NAME="credit_cards" CARD_VERIFICATION_QUEUE_NAME="" \
 AWS_ACCESS_KEY_ID="LOCAL_PLACEHOLDER" \
 AWS_SECRET_ACCESS_KEY="LOCAL_PLACEHOLDER" \
 AWS_SESSION_TOKEN="LOCAL_PLACEHOLDER" \
-envsubst '${ACCOUNT_ID} ${AWS_REGION} ${CREDIT_CARDS_TABLE_NAME} ${CARD_VERIFICATION_QUEUE_NAME} ${AWS_ACCESS_KEY_ID} ${AWS_SECRET_ACCESS_KEY} ${AWS_SESSION_TOKEN}' \
+envsubst '${ACCOUNT_ID} ${REGION} ${CREDIT_CARDS_TABLE_NAME} ${CARD_VERIFICATION_QUEUE_NAME} ${AWS_ACCESS_KEY_ID} ${AWS_SECRET_ACCESS_KEY} ${AWS_SESSION_TOKEN}' \
   < "k8s_entrega3/k8s-credit-cards-deployment.yml" \
   | sed 's|value: "https://sqs[^"]*"|value: ""|' \
   | kubectl apply -f -
