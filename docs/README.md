@@ -1,5 +1,5 @@
 
-# Project Delivery 2 - Shared Suitcase Package Delivery Platform (P2P Broker)
+# Project Delivery 3 - Shared Suitcase Package Delivery Platform (P2P Broker)
 
 This project implements a brokerage platform (broker) for collaborative package delivery. Delivery 1 consisted of four independent applications (users, routes, posts, and offers), each with its own PostgreSQL database, deployed in containers and locally orchestrated using Kubernetes (Minikube). Delivery 2 (Entrega 2) extends the system with:
 
@@ -29,7 +29,7 @@ By using this project, you will find:
 
 ## Table of Contents
 
-- [Project Delivery 2 - Shared Suitcase Package Delivery Platform (P2P Broker)](#project-delivery-2---shared-suitcase-package-delivery-platform-p2p-broker)
+- [Project Delivery 3 - Shared Suitcase Package Delivery Platform (P2P Broker)](#project-delivery-3---shared-suitcase-package-delivery-platform-p2p-broker)
   - [Page](#page)
   - [Table of Contents](#table-of-contents)
   - [Team](#team)
