@@ -452,9 +452,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `k8s_entrega3/k8s-credit-cards-deployment.yml`. `4_sns` also stops
     exposing `email_endpoint` (it equals the `EMAIL_TO_NOTIFY`
     environment secret; the subscription keeps using it internally).
-  - `5_sqs` gains the missing `backend "s3" {}` block — without it its
+  - `5_sqs` gains the missing `backend "s3" {}` block (without it, its
     state was written to the ephemeral runner's local backend and lost
-    on every run — and aligns its AWS provider pin to `~> 5` like every
+    on every run) and aligns its AWS provider pin to `~> 5` like every
     other stack. The pre-existing queue of `dev` (left behind by the
     runs before the fix) was imported into the S3 state locally, and the
     `student1` queue was left in a state the pipeline recreates
@@ -462,8 +462,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     both environments as "no changes" instead of failing with
     `QueueAlreadyExists`.
   - `6_lambda` sets `package_type = "Image"` on the card worker function:
-    the AWS provider defaults to "Zip", which made every plan fail with
-    "handler and runtime must be set when PackageType is Zip" (the stack
+    the AWS provider defaults to the Zip package type, which made every
+    plan fail with "handler and runtime must be set when PackageType is
+    Zip" (the stack
     had never been planned before the pipeline fix, since every run
     failed before the post-k8s step).
 - Updated the local flows to the same channels: `scripts/local-deploy.sh`

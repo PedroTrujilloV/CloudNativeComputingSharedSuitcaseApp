@@ -42,13 +42,10 @@ routed by path prefix to the appropriate ClusterIP Service.
 
 
 ## Network Model
-## Network Model
 
 All services are of the ClusterIP type, as they only allow internal communication within the cluster. External traffic enters through the NGINX ingress controller Service (which exposes a NodePort on the Minikube node) and is routed by path prefix to the appropriate ClusterIP Service.
-All services are of the ClusterIP type, as they only allow internal communication within the cluster. External traffic enters through the NGINX ingress controller Service (which exposes a NodePort on the Minikube node) and is routed by path prefix to the appropriate ClusterIP Service.
 
-Data isolation between applications is enforced at the PostgreSQL level: each application uses its own database and role within the shared Postgres instance, with no cross-app queries or foreign keys. This model replaces the previous per-app NetworkPolicy approach and aligns with the cloud architecture where a single RDS instance serves all applications.
-Data isolation between applications is enforced at the PostgreSQL level: each application uses its own database and role within the shared Postgres instance, with no cross-app queries or foreign keys. This model replaces the previous per-app NetworkPolicy approach and aligns with the cloud architecture where a single RDS instance serves all applications.
+Data isolation between applications is enforced at the PostgreSQL level: each application uses its own database and role within the shared Postgres instance, with no cross-app queries or foreign keys. This model replaces the previous per-app NetworkPolicy approach and aligns with the cloud architecture where a single RDS instance serves the applications of the previous deliveries. In Entrega 3 the credit cards data moves to its own DynamoDB table, so the isolation of that entity is enforced by the table itself instead of by schema and role grants.
 
 
 
@@ -285,10 +282,13 @@ decision and the backend Service appears together with the app in its own
 task; until then the rule has no endpoints and the prefix answers 503.
 
 The cloud deployment uses the Terraform stacks under `terraform/stacks/`
-(`0_storage`, `1_database`, `2_registry`, and `eks`) to provision
-infrastructure on AWS before deploying application workloads via Kubernetes.
-The active deploy order is the one declared in `config.yaml` `tf_stacks`:
-`1_database` → `2_registry` → `eks`. The `0_storage` stack is commented out
+to provision infrastructure on AWS before and after deploying application
+workloads via Kubernetes. The active deploy order is the one declared in
+`config.yaml` `tf_stacks`: `1_database` → `2_registry` → `3_dynamodb` →
+`eks` → `4_sns` → `5_sqs`, and after the k8s manifests are deployed the
+pipeline applies the `post_k8s_stacks` list, currently `6_lambda` (the card
+worker function needs the host of the ingress load balancer, which only
+exists once the k8s step finished). The `0_storage` stack is commented out
 in `config.yaml` because the S3 bucket it creates must exist before any
 stack can initialize its S3 state backend, so it cannot be part of the
 pipeline order; it is provisioned manually in `dev` environments with the
@@ -300,9 +300,14 @@ explanation).
 
 The deployment pipeline (`ci_entrega2_deploy.yml`) orchestrates:
 
-1. **Terraform applies** each stack in `tf_stacks` order (`1_database` → `2_registry` → `eks`)
+1. **Terraform applies** each stack in `tf_stacks` order (`1_database` → `2_registry` → `3_dynamodb` → `eks` → `4_sns` → `5_sqs`)
 2. **Docker images** are built and pushed to Amazon ECR repositories
-3. **Kubernetes manifests** are applied to the EKS cluster for workload deployment
+3. **Kubernetes manifests** are applied to the EKS cluster for workload deployment (`k8s_entrega2/` and `k8s_entrega3/`)
+4. **Terraform applies** the `post_k8s_stacks` list (`6_lambda`)
+
+The destroy pipeline (`ci_entrega2_destroy.yml`) runs the exact reverse
+sequence: `post_k8s_stacks` first, then the k8s manifests, and then the
+`tf_stacks` in reverse order.
 
 In the new architecture, network-layer isolation (via Kubernetes NetworkPolicies) has been replaced by PostgreSQL-level role and database isolation. Each application uses its own database and role within the shared Postgres instance, so there is no need for per-app NetworkPolicy rules. The diagram above shows the logical connectivity of all services in Entrega 2: applications communicate with each other over HTTP/REST (for orchestrator chains), and all applications connect to the single shared Postgres instance using their own credentials.
 

@@ -53,11 +53,11 @@ graph TD
 The cluster ARN, endpoint, CA certificate, OIDC issuer URL and node
 group names are deliberately not exposed: the pipeline connects kubectl
 with `aws eks update-kubeconfig`, so none of them is consumed, and the
-ARN embeds the AWS account id (the value of the `ACCOUNT_ID` environment
-secret) — the deploy pipeline merges every stack output into a single
-JSON that GitHub Actions silently discards when it contains a secret
-value. The values remain available via `aws eks describe-cluster` and
-`aws eks list-nodegroups`.
+ARN embeds the AWS account id, which is the value of the `ACCOUNT_ID`
+environment secret. The deploy pipeline merges every stack output into
+a single JSON that GitHub Actions silently discards when it contains a
+secret value. The values remain available via `aws eks describe-cluster`
+and `aws eks list-nodegroups`.
 
 ## TrueNative token (SECRET_TOKEN)
 
@@ -65,12 +65,13 @@ The deploy pipeline uploads every GitHub environment secret except
 `AWS_*` and `GITHUB_TOKEN` to the AWS Secrets Manager secret
 `secrets-pipeline-native-map` (a JSON map) before applying any stack.
 This stack reads the `SECRET_TOKEN` key of that map with a data source
-and exposes it — **base64-encoded** — as the `secret_token_b64` output.
+and exposes it, in base64-encoded form, as the `secret_token_b64`
+output.
 
 The raw value cannot be exposed as a plain output: the pipeline merges
 every stack output into one `tf_outputs` JSON, and GitHub Actions
 silently discards a job output when it contains the value of any
-in-scope environment secret as a substring — the map's `SECRET_TOKEN`
+in-scope environment secret as a substring. The map's `SECRET_TOKEN`
 is exactly such a secret, so re-exposing it raw would poison the whole
 combined output and every envsubst render would resolve empty. The
 base64 form contains no secret value as a substring, so it crosses the

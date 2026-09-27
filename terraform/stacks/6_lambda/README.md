@@ -70,7 +70,7 @@ plan time). The lab role allows the integrations of the flow:
 The `TRUENATIVE_SECRET_TOKEN` value is read at plan time from the
 `SECRET_TOKEN` key of the `secrets-pipeline-native-map` secret in AWS
 Secrets Manager (populated by the pipeline from the environment
-secrets — see `terraform/stacks/eks/README.md`) and injected as an
+secrets; see `terraform/stacks/eks/README.md`) and injected as an
 environment variable; the k8s side gets the same value through the
 base64-encoded `secret_token_b64` output of the `eks` stack, so both
 sides always match, and the token never appears in this repository.

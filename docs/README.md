@@ -1,14 +1,14 @@
 
 # Project Delivery 3 - Shared Suitcase Package Delivery Platform (P2P Broker)
 
-This project implements a brokerage platform (broker) for collaborative package delivery. Delivery 1 consisted of four independent applications (users, routes, posts, and offers), each with its own PostgreSQL database, deployed in containers and locally orchestrated using Kubernetes (Minikube). Delivery 2 (Entrega 2) extends the system with:
+This project implements a brokerage platform (broker) for collaborative package delivery. Delivery 1 consisted of four independent applications (users, routes, posts, and offers), each with its own PostgreSQL database, deployed in containers and locally orchestrated using Kubernetes (Minikube). Delivery 2 (Entrega 2) extended the system with the `scores_app` microservice, three orchestrator services (RF-003, RF-004, and RF-005), a Kubernetes Ingress as the single public entry point, and a shared PostgreSQL instance in the cloud deployment. Delivery 3 (Entrega 3) adds the two new requirements on top of the same cluster and the same single external host:
 
-* **`scores_app`** a fifth microservice that persists a Score (Utilidad) value per offer (written by RF-004, read null-safely by RF-005).
-* **Three orchestrator services** (`rf003_create_post_app`, `rf004_create_offer_app`, and `rf005_query_post_app`) that expose the client-facing endpoints for requirements RF-003, RF-004, and RF-005. Each orchestrator coordinates calls to the existing microservices while handling consistency (for example, RF-003 uses saga compensation to avoid orphaned routes when a downstream service fails mid-flow) and error propagation (integration failures return 503; business rejections pass through 412 unchanged).
-* **A Kubernetes Ingress** that serves as the single public entry point for all eight services, routing by path prefix (`/users`, `/posts`, `/offers`, `/routes`, `/rf003`, `/rf004`, `/rf005`).
-* **AWS Secrets Manager integration** (via Kubernetes External Secrets Operator) for database credentials in production deployments. Local development uses K8s Secrets with placeholder values stored in `k8s_entrega2/00-secrets.yml`.
-* **AWS Secrets Manager integration** (via Kubernetes External Secrets Operator) for database credentials in production deployments. Local development uses K8s Secrets with placeholder values stored in `k8s_entrega2/00-secrets.yml`.
-* **A shared PostgreSQL instance** in the cloud deployment (single RDS with per-app schema and role isolation), provisioned through Terraform stacks and deployed via the `ci_entrega2_deploy.yml` pipeline, which builds and pushes the images to ECR.
+* **`credit_cards_app`** a new microservice (RF-006) that owns the CreditCard entity in its own DynamoDB table and exposes the `/credit-cards/*` API: it validates the request, tokenizes the card at TrueNative, stores it with status `POR_VERIFICAR`, publishes the verification event to the SQS queue, and answers the client in less than five seconds.
+* **`card_worker`** a serverless component (RF-006) implemented as an AWS Lambda function packaged as a container image: it consumes the card verification queue, polls TrueNative until the card reaches a terminal state (`APROBADA` or `RECHAZADA`), updates the card status in the DynamoDB table, and publishes the result email to the SNS topics.
+* **`user_verification_callback`** a new service (RF-007) that receives the asynchronous identity verification callback from TrueNative, validates the SHA256 integrity token, updates the user status (`VERIFICADO` or `NO_VERIFICADO`) through the `users_app` API, and publishes the result email to the SNS topics.
+* **`truenative`** the provided external verification and tokenization platform, deployed on the cluster and reachable at `/native/*`.
+* **The serverless infrastructure** of the new Terraform stacks (`3_dynamodb` for the CreditCard table, `4_sns` for the email topics, `5_sqs` for the card verification queue and its dead letter queue, and `6_lambda` for the worker function, its least privilege role, and the event source mapping).
+* **The `users_app` modification** (RF-007) that forbids token generation and verification while the user is not `VERIFICADO`, the only change applied to a component from the previous deliveries.
 
 ## Page
 
@@ -18,13 +18,12 @@ The published documentation site is the GitHub Pages site for this repository (s
 
 By using this project, you will find:
 
-* Five independent REST microservices (users, routes, posts, offers, scores), each exclusively responsible for its own data.
+* Five independent REST microservices (users, routes, posts, offers, scores) plus the new credit cards microservice, each exclusively responsible for its own data.
 * Three orchestrator services (RF-003, RF-004, RF-005) that coordinate the microservices behind a single client-facing endpoint per requirement. Each orchestrator handles consistency (for example, RF-003 uses saga compensation to avoid orphaned routes when a downstream service fails mid-flow) and error propagation (integration failures return 503; business rejections pass through 412 unchanged).
-* A shared PostgreSQL instance for all applications, with per-app database and role isolation enforced at the PostgreSQL level.
-* A shared PostgreSQL instance for all applications, with per-app database and role isolation enforced at the PostgreSQL level.
-* Authentication based on random tokens (not JWT) for user management.
+* A shared PostgreSQL instance for the applications of the previous deliveries, with per-app database and role isolation enforced at the PostgreSQL level, and a dedicated DynamoDB table for the CreditCard entity of RF-006.
+* An asynchronous, event driven verification flow for RF-006 (SQS queue, Lambda worker, and SNS email) and for RF-007 (TrueNative webhook, callback service, and SNS email), both behind the single external host.
+* Authentication based on random tokens (not JWT) for user management, with token issuance and verification blocked while the user is not verified.
 * Technical documentation as code, with architecture views modeled in PlantUML and published through GitHub Pages.
-* GitHub Actions pipelines to validate deployment, database configuration, API contracts, and unit test coverage.
 * GitHub Actions pipelines to validate deployment, database configuration, API contracts, and unit test coverage.
 
 ## Table of Contents
@@ -92,6 +91,7 @@ By using this project, you will find:
     - [Stack READMEs](#stack-readmes)
   - [Kubernetes Resources](#kubernetes-resources)
     - [Entrega 2 manifests (`k8s_entrega2/`)](#entrega-2-manifests-k8s_entrega2)
+    - [Entrega 3 manifests (`k8s_entrega3/`)](#entrega-3-manifests-k8s_entrega3)
     - [Legacy Entrega 1 manifests (`k8s/`)](#legacy-entrega-1-manifests-k8s)
     - [Secrets Management](#secrets-management)
       - [Local Minikube (shared database instance)](#local-minikube-shared-database-instance)
@@ -231,6 +231,16 @@ workflows use including the saga-consistency runs that scale a deployment
 to zero replicas between requests (see
 [Testing saga consistency with Postman + kubectl](#testing-saga-consistency-with-postman--kubectl)).
 
+For Entrega 3, the graded collection is `scripts/entrega3/entrega3.json`
+(three folders, executed in order: "Reset," "RF-007 Verificar identidad,"
+and "RF-006 Tarjetas"; it declares the environment variables `BASE_PATH`
+and `EMAIL`). The script `scripts/test-entrega3.sh` replicates the evaluator
+pipeline locally: it connects to the EKS cluster, resolves the ingress host,
+downloads the collection from the course repository, and runs the three
+folders with Newman (see the
+[Development View](./development-view.md#manual-verification-of-rf-006) for
+the expected results per environment).
+
 ### Git
 
 **Git** is a distributed version control system used to track changes to the source code and collaborate as a development team.
@@ -358,7 +368,7 @@ docker run <image_name>:<image_tag>
 
 In this project, Minikube is used to deploy and validate the complete system locally, including:
 
-* Ten workloads: the four legacy microservices, scores_app, rf003_create_post_app, rf004_create_offer_app, rf005_query_post_app, and the two Entrega 3 workloads (credit-cards-app and truenative).
+* Eleven workloads: the four legacy microservices, scores_app, rf003_create_post_app, rf004_create_offer_app, rf005_query_post_app, and the three Entrega 3 workloads (credit-cards-app, user-verification-callback, and truenative). The card worker is a Lambda function and is never deployed on Minikube.
 * One shared PostgreSQL instance with per-app database and role isolation (five databases: users_db, posts_db, offers_db, routes_db, scores_db).
 * Kubernetes Services.
 * Application-to-database communication through PostgreSQL-level role grants.
@@ -423,6 +433,8 @@ Each application runs independently. Refer to the `README.md` in each folder for
 - [RF-003 Orchestration App](apps/rf003_create_post_app.md)
 - [RF-004 Orchestration App](apps/rf004_create_offer_app.md)
 - [RF-005 Orchestration App](apps/rf005_query_post_app.md)
+- [Credit Cards App](apps/credit_cards_app.md)
+- [Card Worker](apps/card_worker.md)
 - [User Verification Callback App](apps/user_verification_callback.md)
 
 ## Deployment
@@ -455,11 +467,11 @@ exactly the same sequence that runs on GitHub Actions:
 ```bash
 # 1. Deploy: cleans old clusters/images, starts Minikube with the ingress
 #    addon, builds all images (the legacy and Entrega 2 apps plus
-#    credit-cards-app), applies the k8s_entrega2/ manifests in order,
-#    deploys the k8s_entrega3/ workloads (TrueNative and the credit
-#    cards Deployment + Service, with local placeholder values for the
-#    DynamoDB table and the SQS queue), and waits until every
-#    Deployment is ready.
+#    credit-cards-app and user-verification-callback), applies the
+#    k8s_entrega2/ manifests in order, deploys the k8s_entrega3/ workloads
+#    (TrueNative and the credit cards Deployment + Service, with local
+#    placeholder values for the DynamoDB table and the SQS queue), and
+#    waits until every Deployment is ready.
 bash scripts/local-deploy.sh
 
 # 2. Verify: checks pods, services and the ingress; verifies all app
@@ -803,18 +815,38 @@ Steps for cloud deployment:
 ### Deployment (AWS)
 
 For the full Terraform and CI pipeline workflow (ECR image build, EKS
-deployment, infrastructure provisioning), use the `ci_entrega2_deploy.yml`
+deployment, and infrastructure provisioning), use the `ci_entrega2_deploy.yml`
 pipeline with a manual workflow dispatch. Refer to the pipeline file at
 `.github/workflows/ci_entrega2_deploy.yml`. The pipeline reads `config.yaml`
-and performs the Terraform apply (in `tf_stacks` order), the Docker image
-build and push to ECR, and the `k8s_entrega2/` manifest apply in a single run.
+and performs, in a single run: the Terraform apply in `tf_stacks` order
+(`1_database` → `2_registry` → `3_dynamodb` → `eks` → `4_sns` → `5_sqs`),
+the Docker image build and push to ECR for every entry of `apps`, the
+`k8s_entrega2/` and `k8s_entrega3/` manifest apply, and finally the
+`post_k8s_stacks` apply (`6_lambda`, which needs the host of the ingress
+load balancer that only exists once the k8s step finished).
 
-The database is a single shared RDS PostgreSQL instance with per app schema
-and role isolation (provisioned by the `1_database` Terraform stack), and the
-K8s Secrets are populated from AWS Secrets Manager by the External Secrets
-Operator (ESO). The Ingress uses the NGINX controller in AWS as well, because
-the AWS Academy academic accounts do not allow an ALB (see the ingress
-section above and the [Deployment View](./deployment-view.md)).
+After the deploy finishes and before the evaluator, the manual step of the
+email mechanism applies: the deploy pipeline creates the SNS topics and their
+email subscriptions with the `EMAIL_TO_NOTIFY` address, and Amazon SNS sends
+a confirmation email to that address. Open the email and click the
+confirmation link once; while the subscription is not confirmed, SNS discards
+the notifications and the evaluator fails the email validation.
+
+The evaluation runs with `ci_entrega3_evaluador.yml` (which calls the
+course reusable workflow `ci_evaluador_entrega3.yml`, the API tests of
+RF-006 and RF-007 against the deployed platform), and the teardown runs
+with `ci_entrega2_destroy.yml`, which destroys the `post_k8s_stacks`
+first, then the k8s manifests, and then the `tf_stacks` in reverse order.
+The pipelines must run in that exact order, and none of them must be
+modified.
+
+The database of the previous deliveries is a single shared RDS PostgreSQL
+instance with per app schema and role isolation (provisioned by the
+`1_database` Terraform stack), and the K8s Secrets are populated from AWS
+Secrets Manager by the External Secrets Operator (ESO). The Ingress uses the
+NGINX controller in AWS as well, because the AWS Academy academic accounts
+do not allow an ALB (see the ingress section above and the
+[Deployment View](./deployment-view.md)).
 
 For the stack by stack infrastructure guide, see the [Terraform Deployment
 Guide](./terraform-deployment.md).
@@ -832,11 +864,16 @@ docker run --rm -e PLANTUML_LIMIT_SIZE=8192 -v "$(pwd)/docs/diagrams:/workspace"
 ## Terraform
 
 The project uses Terraform to provision the cloud infrastructure (S3 state
-bucket, RDS PostgreSQL, ECR repositories, EKS cluster, and the SNS email
-topics) on AWS Academy. The active stacks, in `config.yaml` `tf_stacks`
-deploy order, are `1_database`, `2_registry`, `eks`, and `4_sns`; `0_storage`
-is commented out (see the [Terraform Deployment Guide](./terraform-deployment.md)
-for the storage bootstrap prerequisite).
+bucket, RDS PostgreSQL, ECR repositories, the DynamoDB table of the CreditCard
+entity, EKS cluster, the SNS email topics, the SQS card verification queue,
+and the Lambda card worker) on AWS Academy. The active stacks, in
+`config.yaml` `tf_stacks` deploy order, are `1_database`, `2_registry`,
+`3_dynamodb`, `eks`, `4_sns`, and `5_sqs`; after the k8s manifests are
+deployed the pipeline applies the `post_k8s_stacks` list, currently
+`6_lambda`. `0_storage` is commented out because its bucket must exist
+before any stack can initialize its S3 state backend (see the
+[Terraform Deployment Guide](./terraform-deployment.md) for the storage
+bootstrap prerequisite).
 
 ### Terraform Deployment Guide
 
@@ -852,10 +889,14 @@ components, variables, outputs, and cross stack relationships:
 - [0_storage Stack README](../terraform/stacks/0_storage/README.md)
 - [1_database Stack README](../terraform/stacks/1_database/README.md)
 - [2_registry Stack README](../terraform/stacks/2_registry/README.md)
+- [3_dynamodb Stack README](../terraform/stacks/3_dynamodb/README.md)
 - [eks Stack README](../terraform/stacks/eks/README.md)
+- [4_sns Stack README](../terraform/stacks/4_sns/README.md)
+- [5_sqs Stack README](../terraform/stacks/5_sqs/README.md)
+- [6_lambda Stack README](../terraform/stacks/6_lambda/README.md)
 
-For CI/CD deployment details, refer to the `ci_entrega2_deploy.yml` pipeline
-in `.github/workflows/`.
+For CI/CD deployment details, refer to the `ci_entrega2_deploy.yml` and
+`ci_entrega2_destroy.yml` pipelines in `.github/workflows/`.
 
 ## Kubernetes Resources
 
@@ -891,7 +932,27 @@ The `k8s_entrega2/00-secrets.yml` file is the AWS shaped template (it uses
 `k8s_entrega2/00-secrets.yml.tpl` documents the per app secret shape. The
 `local-only/` folder is excluded from `config.yaml` `k8s_manifests`, so the
 AWS EKS pipeline never applies the local shared DB (production uses real
-RDS).
+RDS). The RF-007 callback receiver lives in this folder too
+(`28-user-verification-callback.yml`), because it is deployed like any other
+web workload.
+
+### Entrega 3 manifests (`k8s_entrega3/`)
+
+Applied by the `ci_entrega2_deploy.yml` pipeline after `k8s_entrega2/` (both
+folders are listed in `config.yaml` `k8s_manifests`), and by
+`scripts/local-deploy.sh` for the local Minikube deployment. The two files
+use `${...}` placeholders that the deploy step renders with envsubst before
+the apply.
+
+| File | Components | Purpose |
+|---|---|---|
+| `k8s_entrega3/k8s-true-native-deployment.yml` | K8s Secret (`truenative-secret`) + Deployment + Service (`truenative`, `truenative-service`) | The external TrueNative platform (provided image `true-native:2.0.0`); the `SECRET_TOKEN` value is the base64 form of the `SECRET_TOKEN_B64` environment variable that the pipeline exports from the `eks` stack output, and the manifest never carries the raw token |
+| `k8s_entrega3/k8s-credit-cards-deployment.yml` | K8s Secret (`lab-aws-credentials`) + Deployment + Service (`credit-cards-app`, `credit-cards-service`) | The credit cards microservice; the DynamoDB table name and the SQS queue name come from the `3_dynamodb` and `5_sqs` stack outputs, the queue URL is reconstructed from the queue name plus the account id and region at render time, and the pod authenticates to AWS with the session credentials of the deployer |
+
+The `truenative-secret` created by the first manifest is consumed by both
+the TrueNative container and the credit cards Deployment (the
+`TRUENATIVE_SECRET_TOKEN` environment variable), so every client of the
+platform uses the same token.
 
 ### Legacy Entrega 1 manifests (`k8s/`)
 

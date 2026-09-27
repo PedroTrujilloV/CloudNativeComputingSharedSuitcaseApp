@@ -12,6 +12,9 @@ This model presents the runtime components defined for the architecture. It incl
 - [RF-003 Orchestration App](apps/rf003_create_post_app.md)
 - [RF-004 Orchestration App](apps/rf004_create_offer_app.md)
 - [RF-005 Orchestration App](apps/rf005_query_post_app.md)
+- [Credit Cards App](apps/credit_cards_app.md)
+- [Card Worker](apps/card_worker.md)
+- [User Verification Callback App](apps/user_verification_callback.md)
 
 ## New Components (Entrega 3)
 

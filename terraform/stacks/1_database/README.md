@@ -75,7 +75,7 @@ graph TD
 `rds_port`, `rds_db_name` and the secret ARN are deliberately not
 exposed: the port (`5432`) and the database name (`shared_db`) equal the
 `DB_PORT` and `DB_NAME` environment secrets, and the ARN embeds the AWS
-account id — the deploy pipeline merges every stack output into a single
+account id (the deploy pipeline merges every stack output into a single
 JSON that GitHub Actions silently discards when it contains the value of
 any environment secret (the whole `tf_outputs` job output was lost this
 way). The port and the name are hardcoded in the k8s manifest instead,

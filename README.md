@@ -92,7 +92,6 @@ Entrega 2 extends the Delivery 1 system with three new elements:
   dates or duplicate posts). The RF-003 orchestrator additionally implements
   saga compensation to avoid orphaned data when the post creation fails mid-flow.
 * **Shared database:** both cloud and local deployments use a single PostgreSQL instance. In production (Terraform stacks) all applications share an AWS RDS instance with per-app schema and role isolation. The local Minikube model mirrors this architecture via `k8s_entrega2/local-only/15-shared-db.yml` a single shared Postgres Deployment with per-app databases and PostgreSQL-level role isolation applied by `local-deploy.sh` (this folder is excluded from `config.yaml k8s_manifests`).
-* **Shared database:** both cloud and local deployments use a single PostgreSQL instance. In production (Terraform stacks) all applications share an AWS RDS instance with per-app schema and role isolation. The local Minikube model mirrors this architecture via `k8s_entrega2/local-only/15-shared-db.yml` a single shared Postgres Deployment with per-app databases and PostgreSQL-level role isolation applied by `local-deploy.sh` (this folder is excluded from `config.yaml k8s_manifests`).
 
 The rest of the guide below documents the Delivery 1 local deployment model;
 the `scores_app` build/run steps follow the same pattern as the other

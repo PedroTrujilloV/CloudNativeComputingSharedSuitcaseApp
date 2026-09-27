@@ -85,34 +85,7 @@ Rules implemented in `rf004_create_offer_app`:
    fails (unreachable Scores service, 503), the orchestrator deletes the
    offer created by this same request (`DELETE /offers/{offerId}`)
    before answering the client with `503
-1. **The offer is the first write, so every failure after it triggers
-   compensation.** The flow order is: create the offer, then fetch the
-   route and calculate the score, then persist the score. When the route
-   fetch fails (unreachable Routes service, 503) or the score stage
-   fails (unreachable Scores service, 503), the orchestrator deletes the
-   offer created by this same request (`DELETE /offers/{offerId}`)
-   before answering the client with `503
    {"msg": "El servicio está temporalmente fuera de servicio."}`.
-2. **A missing route (business 404) is also compensated, and the 404
-   still reaches the client.** A post whose `routeId` does not exist
-   cannot be scored, so the offer created by the request is deleted
-   before the documented 404 (empty body) is answered: the business
-   contract is preserved and no orphaned offer remains.
-3. **Failures before the first write leave nothing behind.** An
-   unreachable Users or Posts service happens before the offer is
-   created, so the 503 answer needs no compensation. An unreachable
-   Offers service means the write never happened either.
-4. **Business rejections in the gates (400/404/412) are never
-   compensated.** A missing post, an own post, an expired post, or a
-   malformed body passes through untouched; no write was performed at
-   that point, so nothing to roll back.
-5. **A failed compensation is logged, not fatal.** If the Offers service
-   is also down, the compensating delete cannot be confirmed; the
-   original error is still returned (503, or 404 for a missing route),
-   and the event is logged at ERROR (see Observability below). The
-   residual orphan is *null-safe*: an offer without a score simply reads
-   as `null` in RF-005 until the data is repaired, so it does not
-   corrupt any query.
 2. **A missing route (business 404) is also compensated, and the 404
    still reaches the client.** A post whose `routeId` does not exist
    cannot be scored, so the offer created by the request is deleted
