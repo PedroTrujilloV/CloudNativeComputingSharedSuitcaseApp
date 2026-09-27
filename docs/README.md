@@ -12,7 +12,7 @@ This project implements a brokerage platform (broker) for collaborative package 
 
 ## Page
 
-Project Delivery 2 Github web page: https://miniature-disco-ee8nm6p.pages.github.io
+Project Delivery 3 Github web page: https://miniature-disco-ee8nm6p.pages.github.io
 
 The published documentation site is the GitHub Pages site for this repository (see `config.yaml` `docs` for the URL).
 
