@@ -1,0 +1,562 @@
+name: Entrega 2 - Deploy (reusable)
+
+# Pipeline reutilizable: NO se dispara directamente en este repo (recursos-
+# evaluador no tiene el código de terraform/k8s de ningún proyecto), solo vía
+# `uses:` desde el repo de cada estudiante/tutor. Ver
+# 202514-cesarf/.github/workflows/ci_entrega2_deploy.yml para un ejemplo de
+# invocación.
+#
+# El repo que llama debe tener:
+#   - Las carpetas `terraform/stacks/` y `terraform/environments/` en la raíz
+#     (ambas obligatorias, con esos nombres exactos).
+#   - `config.yaml` en la raíz, con:
+#       tf_stacks: lista de NOMBRES de stack (no rutas), en el orden en que
+#       se deben aplicar. Por cada nombre debe existir tanto
+#       terraform/stacks/<nombre>/ (el módulo) como
+#       terraform/environments/<environment>/<nombre>/ (con backend.tfvars y
+#       terraform.tfvars) — el pipeline arma esas dos rutas a partir del
+#       nombre, no acepta rutas arbitrarias. Para environment=tutor no hace
+#       falta terraform/environments/tutor/<nombre>/ en absoluto — ver "Caso
+#       especial tutor" más abajo.
+#         tf_stacks:
+#           - apps
+#       default_env: nombre de un ambiente (una de las carpetas de
+#       terraform/environments/, ej. "student1") que se usa como base para
+#       'tutor' — ver "Caso especial tutor" más abajo. Obligatorio siempre
+#       (aunque nunca se despliegue tutor) y no puede ser "tutor".
+#         default_env: student1
+#       k8s_manifests: lista de carpetas con manifiestos de k8s (*.yml) a
+#       aplicar, en orden (rutas relativas a la raíz del repo).
+#         k8s_manifests:
+#           - k8s/aws
+#       apps: lista de imágenes a construir y subir a ECR antes de aplicar
+#       k8s_manifests. Cada elemento es un objeto de una sola clave (el
+#       nombre de la app, libre) cuyo valor tiene "folder" (carpeta con el
+#       Dockerfile, relativa a la raíz del repo), "image_name" (nombre del
+#       repo ECR — debe existir ya, normalmente creado por uno de los
+#       tf_stacks, y coincidir con el que usan los manifiestos de
+#       k8s_manifests) e "image_tag" (tag con el que se construye/publica
+#       esa imagen — debe coincidir con el tag usado en k8s_manifests).
+#         apps:
+#           - offers_app:
+#               folder: offers_app
+#               image_name: offers-app
+#               image_tag: 1.0.0
+#       post_k8s_stacks: opcional (backward compatible: si no está, se omite
+#       por completo y el pipeline se comporta exactamente igual que antes).
+#       Misma forma que tf_stacks (lista de NOMBRES de stack), pero estos se
+#       aplican DESPUÉS de deploy-k8s en vez de antes. Úsenlo para stacks que
+#       necesiten algo que solo existe una vez que k8s ya está desplegado
+#       (ej. el hostname del ELB de ingress-nginx, vía un data source que lo
+#       descubra por tags — así ya no hay problema de orden: cuando este
+#       stack corre, el ingress ya existe).
+#         post_k8s_stacks:
+#           - events
+#   - terraform/.terraform-version con la versión de Terraform a usar
+#     (opcional — si no está, se usa 1.12.0 por defecto).
+#   - Un GitHub Environment llamado igual que el input `environment`.
+#
+# Buckets de state: este pipeline NO crea buckets S3 — todos (los de cada
+# backend.tfvars de estudiante, y el de la variable TF_STATE_BUCKET_NAME de
+# tutor) deben existir de antes en la cuenta de AWS. Créenlos a mano (ej.
+# `aws s3api create-bucket ...` + `put-bucket-versioning`) antes de correr
+# el deploy.
+#
+# Secret "secrets-pipeline-native-map": como paso temprano del job
+# `terraform`, este pipeline sube TODOS los secrets configurados para el
+# ambiente (excepto AWS_* y GITHUB_TOKEN) a un único secret de Secrets
+# Manager con este nombre secrets-pipeline-native-map Este secret NO se gestiona con
+# terraform y por lo tanto NO se destruye en ci_entrega2_destroy.yml.
+#
+# Caso especial "tutor": el ambiente `tutor` no tiene backend.tfvars ni
+# terraform.tfvars committeados (el tutor no hace push a este repo, así que
+# nunca configura terraform/environments/tutor/), así que para ese ambiente
+# el pipeline usa la carpeta terraform/environments/<default_env>/<stack>/
+# (default_env viene de config.yaml) en vez de la de tutor:
+#   - terraform.tfvars: el de default_env, tal cual (para cluster_name,
+#     etc.) — no se pisa nada.
+#   - backend.tfvars: el de default_env se pasa primero como base (por si
+#     trae más valores además de bucket/key/region), y luego se pisan:
+#       - region: fijo "us-east-1"
+#       - bucket: de la variable TF_STATE_BUCKET_NAME (debe existir de
+#         antes, ver arriba). Es una variable de repositorio/ambiente
+#         (Settings → Secrets and variables → Actions → Variables), no un
+#         secret — el nombre de un bucket no es información sensible.
+#       - key: "<repo>/<stack>/terraform.tfstate" (repo = nombre de este
+#         repo, para que cada stack tenga su propio state dentro del
+#         bucket)
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Ambiente a desplegar (debe existir como GitHub Environment en el repo que llama)'
+        required: true
+        type: string
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      AWS_SESSION_TOKEN:
+        required: true
+      DB_USERNAME:
+        description: 'Usuario de la base de datos. Opcional'
+        required: false
+      DB_PASSWORD:
+        description: 'Contraseña de la base de datos. Opcional'
+        required: false
+
+# Evita que dos ejecuciones toquen el mismo state de Terraform / cluster a la
+# vez. El grupo NO lleva "deploy-": es el mismo que usa ci_entrega2_destroy.yml
+# a propósito, para que un deploy y un destroy del mismo ambiente nunca corran
+# en paralelo (sería peligroso: destruir infra mientras se está creando/
+# modificando). Dos deploys al mismo ambiente tampoco corren en paralelo;
+# deploys/destroys a ambientes distintos sí pueden correr a la vez.
+concurrency:
+  group: infra-${{ github.ref }}-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  # -----------------------------------------------------------------------
+  # 0. Valida que estén los secrets requeridos (falla rápido y con mensaje
+  #    claro en vez de dejar que cada job de más adelante falle en un punto
+  #    distinto con un error de AWS/Terraform/kubectl menos obvio) y lee de
+  #    config.yaml las listas tf_stacks / k8s_manifests, y de los .tfvars de
+  #    cada stack la configuración (bucket(s) de state, región, nombre del
+  #    cluster), para no duplicar nada de esto en el workflow.
+  # -----------------------------------------------------------------------
+  config:
+    environment: ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    outputs:
+      tf_stacks: ${{ steps.lists.outputs.tf_stacks }}
+      post_k8s_stacks: ${{ steps.lists.outputs.post_k8s_stacks }}
+      k8s_manifests: ${{ steps.lists.outputs.k8s_manifests }}
+      apps: ${{ steps.lists.outputs.apps }}
+      default_env: ${{ steps.lists.outputs.default_env }}
+      region: ${{ steps.tf_config.outputs.region }}
+      cluster_name: ${{ steps.tf_config.outputs.cluster_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required secrets and vars are set
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+          DB_USERNAME: ${{ secrets.DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          TF_STATE_BUCKET_NAME: ${{ vars.TF_STATE_BUCKET_NAME }}
+        run: |
+          # DB_USERNAME/DB_PASSWORD son opcionales. Si vienen configurados se pasan a
+          # terraform como -var, si no, no se pasa nada y el stack debe
+          # resolver sus propias credenciales.
+          required_secrets=(AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN)
+
+          required_vars=()
+          if [ "${{ inputs.environment }}" = "tutor" ]; then
+            required_vars+=(TF_STATE_BUCKET_NAME)
+          fi
+
+          missing_secrets=()
+          for var in "${required_secrets[@]}"; do
+            if [ -z "${!var}" ]; then
+              missing_secrets+=("$var")
+            fi
+          done
+          missing_vars=()
+          for var in "${required_vars[@]}"; do
+            if [ -z "${!var}" ]; then
+              missing_vars+=("$var")
+            fi
+          done
+
+          if [ ${#missing_secrets[@]} -gt 0 ]; then
+            echo "❌ Faltan los siguientes secrets en el repo (Settings → Secrets and variables → Actions → Secrets):"
+            for var in "${missing_secrets[@]}"; do
+              echo "   - $var"
+            done
+          fi
+          if [ ${#missing_vars[@]} -gt 0 ]; then
+            echo "❌ Faltan las siguientes variables en el repo (Settings → Secrets and variables → Actions → Variables):"
+            for var in "${missing_vars[@]}"; do
+              echo "   - $var"
+            done
+          fi
+          if [ ${#missing_secrets[@]} -gt 0 ] || [ ${#missing_vars[@]} -gt 0 ]; then
+            exit 1
+          fi
+
+          # RDS Postgres exige que MasterUserPassword tenga entre 8 y 128
+          # caracteres y no contenga "/", '"' ni "@". Si no cumple, mejor
+          # fallar acá con un mensaje claro que dejar que falle más tarde en
+          # "creating RDS DB Instance" con un error de la API menos obvio.
+          # Solo se valida si DB_PASSWORD viene configurado (es opcional).
+          if [ -n "$DB_PASSWORD" ]; then
+            if [ ${#DB_PASSWORD} -lt 8 ] || [ ${#DB_PASSWORD} -gt 128 ]; then
+              echo "❌ DB_PASSWORD debe tener entre 8 y 128 caracteres (tiene ${#DB_PASSWORD})."
+              exit 1
+            fi
+            case "$DB_PASSWORD" in
+              */*|*'"'*|*@*)
+                echo "❌ DB_PASSWORD no puede contener '/', '\"' ni '@' (restricción de RDS)."
+                exit 1
+                ;;
+            esac
+          fi
+
+          echo "✅ Todos los secrets y variables requeridos están configurados."
+
+      - uses: mikefarah/yq@v4.30.8
+
+      - id: lists
+        name: Leer tf_stacks / k8s_manifests / apps de config.yaml
+        run: |
+          tf_stacks=$(yq -o=json -I=0 '.tf_stacks // []' config.yaml)
+          post_k8s_stacks=$(yq -o=json -I=0 '.post_k8s_stacks // []' config.yaml)
+          k8s_manifests=$(yq -o=json -I=0 '.k8s_manifests // []' config.yaml)
+          # config.yaml trae "apps" como una lista de objetos de una sola
+          # clave, ej. [{"offers_app": {"folder": ..., "image_name": ...}}].
+          # Se aplana a [{"name": "offers_app", "folder": ..., "image_name": ...}]
+          # para poder usar matrix.app.folder / matrix.app.image_name directo.
+          apps=$(yq -o=json -I=0 '.apps // []' config.yaml \
+            | jq -c '[.[] | to_entries[0] | {name: .key} + .value]')
+          default_env=$(yq -r '.default_env // ""' config.yaml)
+
+          if [ ! -d terraform/stacks ] || [ ! -d terraform/environments ]; then
+            echo "❌ Este repo debe tener las carpetas terraform/stacks/ y terraform/environments/ en la raíz."
+            exit 1
+          fi
+          if [ "$(echo "$tf_stacks" | jq 'length')" -eq 0 ]; then
+            echo "❌ config.yaml no define 'tf_stacks' (lista de nombres de stack de terraform a aplicar, en orden)."
+            exit 1
+          fi
+          if [ "$(echo "$k8s_manifests" | jq 'length')" -eq 0 ]; then
+            echo "❌ config.yaml no define 'k8s_manifests' (lista de carpetas de manifiestos k8s a aplicar, en orden)."
+            exit 1
+          fi
+          if [ "$(echo "$apps" | jq 'length')" -eq 0 ]; then
+            echo "❌ config.yaml no define 'apps' (lista de { <nombre>: { folder, image_name, image_tag } } a construir y subir a ECR)."
+            exit 1
+          fi
+          if [ "$(echo "$apps" | jq '[.[] | select(has("folder") and has("image_name") and has("image_tag"))] | length')" != "$(echo "$apps" | jq 'length')" ]; then
+            echo "❌ Cada entrada de 'apps' en config.yaml debe tener 'folder', 'image_name' e 'image_tag'."
+            exit 1
+          fi
+          if [ -z "$default_env" ]; then
+            echo "❌ config.yaml no define 'default_env' (nombre de un ambiente de terraform/environments/ a usar como base para 'tutor')."
+            exit 1
+          fi
+          if [ "$default_env" = "tutor" ]; then
+            echo "❌ 'default_env' en config.yaml no puede ser 'tutor' (tutor lo usa como base para sí mismo, sería circular)."
+            exit 1
+          fi
+          # post_k8s_stacks es opcional, pero si trae nombres deben existir
+          # como carpeta de stack igual que los de tf_stacks.
+          for stack_name in $(echo "$post_k8s_stacks" | jq -r '.[]'); do
+            if [ ! -d "terraform/stacks/${stack_name}" ]; then
+              echo "❌ No existe terraform/stacks/${stack_name} (esperado para el stack '${stack_name}' listado en post_k8s_stacks)."
+              exit 1
+            fi
+          done
+
+          echo "tf_stacks=${tf_stacks}" >> "$GITHUB_OUTPUT"
+          echo "post_k8s_stacks=${post_k8s_stacks}" >> "$GITHUB_OUTPUT"
+          echo "k8s_manifests=${k8s_manifests}" >> "$GITHUB_OUTPUT"
+          echo "apps=${apps}" >> "$GITHUB_OUTPUT"
+          echo "default_env=${default_env}" >> "$GITHUB_OUTPUT"
+
+      - id: tf_config
+        name: Descubrir región / cluster para los stacks
+        run: |
+          region=""
+          cluster_name=""
+
+          if [ "${{ inputs.environment }}" = "tutor" ]; then
+            env_environment="${{ steps.lists.outputs.default_env }}"
+          else
+            env_environment="${{ inputs.environment }}"
+          fi
+
+          for stack_name in $(echo '${{ steps.lists.outputs.tf_stacks }}' | jq -r '.[]'); do
+            stack_dir="terraform/stacks/${stack_name}"
+            env_dir="terraform/environments/${env_environment}/${stack_name}"
+            backend_file="${env_dir}/backend.tfvars"
+            tfvars_file="${env_dir}/terraform.tfvars"
+
+            if [ ! -d "$stack_dir" ]; then
+              echo "❌ No existe ${stack_dir} (esperado para el stack '${stack_name}' listado en tf_stacks)."
+              exit 1
+            fi
+            if [ ! -f "$backend_file" ]; then
+              echo "❌ No existe ${backend_file} (esperado para el stack '${stack_name}', ver comentario al inicio del workflow)."
+              exit 1
+            fi
+
+            if [ "${{ inputs.environment }}" = "tutor" ]; then
+              stack_region="us-east-1"
+            else
+              stack_region=$(grep '^region' "$backend_file" | cut -d'"' -f2)
+            fi
+
+            region="${region:-$stack_region}"
+
+            if [ -z "$cluster_name" ] && [ -f "$tfvars_file" ]; then
+              found=$(grep '^cluster_name' "$tfvars_file" | cut -d'"' -f2 || true)
+              cluster_name="${cluster_name:-$found}"
+            fi
+          done
+
+          if [ -z "$cluster_name" ]; then
+            echo "❌ Ningún stack de tf_stacks define 'cluster_name' en su terraform.tfvars (se usa para conectar kubectl en deploy-k8s)."
+            exit 1
+          fi
+
+          echo "region=${region}" >> "$GITHUB_OUTPUT"
+          echo "cluster_name=${cluster_name}" >> "$GITHUB_OUTPUT"
+
+  # -----------------------------------------------------------------------
+  # 1. Terraform init / plan / apply de cada stack en tf_stacks, en orden
+  #    (equivalente a tfinit + tfplan + tfapply, repetido por stack). Los
+  #    outputs de todos los stacks se combinan en un único mapa (si dos
+  #    stacks definen un output con el mismo nombre, gana el del stack que
+  #    corre después) y quedan disponibles para deploy-k8s. Los buckets S3
+  #    de state deben existir de antes (ver comentario de cabecera) — este
+  #    pipeline no los crea.
+  # -----------------------------------------------------------------------
+  terraform:
+    environment: ${{ inputs.environment }}
+    needs: config
+    runs-on: ubuntu-latest
+    outputs:
+      tf_outputs: ${{ steps.apply.outputs.tf-outputs }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ needs.config.outputs.region }}
+
+      - name: Store non-AWS secrets in Secrets Manager
+        # Sube TODOS los secrets configurados para este ambiente a
+        # un único secret de Secrets Manager, como un JSON {clave: valor}.
+        env:
+          ALL_SECRETS_JSON: ${{ toJSON(secrets) }}
+        run: |
+          secret_name="secrets-pipeline-native-map"
+
+          secret_json=$(echo "$ALL_SECRETS_JSON" \
+            | jq 'with_entries(select(((.key | test("^AWS_"; "i")) or (.key | ascii_downcase == "github_token")) | not))')
+
+          if aws secretsmanager describe-secret --secret-id "$secret_name" >/dev/null 2>&1; then
+            aws secretsmanager put-secret-value \
+              --secret-id "$secret_name" \
+              --secret-string "$secret_json" >/dev/null
+          else
+            aws secretsmanager create-secret \
+              --name "$secret_name" \
+              --secret-string "$secret_json" >/dev/null
+          fi
+
+      - name: Checkout recursos-evaluador (actions)
+        uses: actions/checkout@v4
+        with:
+          repository: MISW-4301-Desarrollo-Apps-en-la-Nube/recursos-evaluador
+          ref: main
+          path: .recursos-evaluador
+
+      - name: Apply tf_stacks
+        id: apply
+        uses: ./.recursos-evaluador/.github/actions/apply-terraform-stacks
+        with:
+          stacks-json: ${{ needs.config.outputs.tf_stacks }}
+          environment: ${{ inputs.environment }}
+          default-env: ${{ needs.config.outputs.default_env }}
+          tf-state-bucket-name: ${{ vars.TF_STATE_BUCKET_NAME }}
+          db-username: ${{ secrets.DB_USERNAME }}
+          db-password: ${{ secrets.DB_PASSWORD }}
+
+  # -----------------------------------------------------------------------
+  # Build + push de las imágenes a ECR (equivalente a dkbuild + dkpush).
+  # Necesita que Terraform ya haya creado los repos ECR.
+  # -----------------------------------------------------------------------
+  build-and-push-images:
+    environment: ${{ inputs.environment }}
+    needs: [config, terraform]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJSON(needs.config.outputs.apps) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ needs.config.outputs.region }}
+
+      - name: Get AWS account id
+        id: account
+        run: echo "id=$(aws sts get-caller-identity --query Account --output text)" >> "$GITHUB_OUTPUT"
+
+      - name: Login to ECR
+        run: |
+          aws ecr get-login-password --region "${{ needs.config.outputs.region }}" \
+            | docker login --username AWS --password-stdin \
+              "${{ steps.account.outputs.id }}.dkr.ecr.${{ needs.config.outputs.region }}.amazonaws.com"
+
+      - name: Build image
+        run: |
+          docker build \
+            -t "${{ matrix.app.image_name }}:${{ matrix.app.image_tag }}" \
+            --label version="${{ matrix.app.image_tag }}" \
+            -f "${{ matrix.app.folder }}/Dockerfile" "${{ matrix.app.folder }}"
+
+      - name: Tag and push image
+        run: |
+          ecr_repo="${{ steps.account.outputs.id }}.dkr.ecr.${{ needs.config.outputs.region }}.amazonaws.com/${{ matrix.app.image_name }}"
+          docker tag "${{ matrix.app.image_name }}:${{ matrix.app.image_tag }}" "${ecr_repo}:${{ matrix.app.image_tag }}"
+          docker push "${ecr_repo}:${{ matrix.app.image_tag }}"
+
+  # -----------------------------------------------------------------------
+  # 2. Despliegue de los manifiestos de k8s listados en k8s_manifests, en
+  #    orden, sobre el cluster EKS (equivalente a eksconfig + eksapply).
+  # -----------------------------------------------------------------------
+  deploy-k8s:
+    environment: ${{ inputs.environment }}
+    needs: [config, terraform, build-and-push-images]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ needs.config.outputs.region }}
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --region "${{ needs.config.outputs.region }}" \
+            --name "${{ needs.config.outputs.cluster_name }}"
+
+      - uses: azure/setup-helm@v4
+
+      - name: Install/upgrade ingress-nginx
+        run: |
+          helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+          helm repo update
+          helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+            --namespace ingress-nginx --create-namespace \
+            --set controller.service.type=LoadBalancer \
+            --wait --timeout 5m
+
+      - name: Get AWS account id
+        id: account
+        run: echo "id=$(aws sts get-caller-identity --query Account --output text)" >> "$GITHUB_OUTPUT"
+
+      - name: Export terraform outputs as env vars
+        # Cada output de terraform (de cualquier stack) queda disponible acá
+        # como variable de entorno EN_MAYÚSCULA para el envsubst de abajo
+        # (ej. output "db_host" -> $DB_HOST). Así los manifiestos de k8s
+        # pueden usar cualquier output que definan los stacks, no solo
+        # db_name/db_host/db_port.
+        env:
+          TF_OUTPUTS: ${{ needs.terraform.outputs.tf_outputs }}
+        run: |
+          echo "$TF_OUTPUTS" \
+            | jq -r 'to_entries[] | "\(.key | ascii_upcase)=\(.value)"' \
+            >> "$GITHUB_ENV"
+
+      - name: Apply k8s manifests
+        id: apply
+        env:
+          ACCOUNT_ID: ${{ steps.account.outputs.id }}
+          DB_USERNAME: ${{ secrets.DB_USERNAME }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        # El "\n" antes de "---" es a propósito: si un archivo no termina en
+        # salto de línea, el separador quedaría pegado a su última línea
+        # (ej. "targetPort: 9000---") y corrompería el stream de YAML,
+        # mezclando el documento siguiente con el anterior.
+        run: |
+          shopt -s nullglob
+          : > /tmp/applied_resources.txt
+
+          echo '${{ needs.config.outputs.k8s_manifests }}' | jq -r '.[]' | while read -r dir; do
+            echo "::group::kubectl apply ($dir)"
+            files=("$dir"/*.yml)
+            if [ ${#files[@]} -eq 0 ]; then
+              echo "❌ No se encontraron archivos *.yml en '${dir}' (listado en k8s_manifests de config.yaml)."
+              exit 1
+            fi
+            for f in "${files[@]}"; do
+              envsubst < "$f"
+              printf '\n---\n'
+            done | kubectl apply -f - -o name | tee -a /tmp/applied_resources.txt
+            echo "::endgroup::"
+          done
+
+      - name: Wait for deployments to be ready
+        # Solo espera los Deployments que efectivamente se acaban de aplicar
+        # (descubiertos en el paso anterior), en vez de una lista fija de
+        # nombres de apps: así funciona sin importar qué apps despliegue
+        # cada repo. El "|| true" evita que `grep` sin resultados (un repo
+        # que no despliega ningún Deployment) tumbe el step por pipefail.
+        run: |
+          grep '^deployment\.apps/' /tmp/applied_resources.txt | sort -u > /tmp/deployments.txt || true
+          while read -r res; do
+            kubectl rollout status "$res" --timeout=180s
+          done < /tmp/deployments.txt
+
+  # -----------------------------------------------------------------------
+  # 3. Terraform init / plan / apply de cada stack en post_k8s_stacks (si
+  #    config.yaml define alguno), DESPUÉS de deploy-k8s. Sigue combinando
+  #    sobre los outputs de tf_stacks (needs.terraform.outputs.tf_outputs).
+  #    Solo corre si post_k8s_stacks no está vacío — si config.yaml no lo
+  #    define, este job se omite por completo y el pipeline se comporta
+  #    exactamente igual que antes de que existiera esta funcionalidad.
+  # -----------------------------------------------------------------------
+  terraform-post-k8s:
+    environment: ${{ inputs.environment }}
+    needs: [config, terraform, deploy-k8s]
+    if: needs.config.outputs.post_k8s_stacks != '[]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ needs.config.outputs.region }}
+
+      - name: Checkout recursos-evaluador (actions)
+        uses: actions/checkout@v4
+        with:
+          repository: MISW-4301-Desarrollo-Apps-en-la-Nube/recursos-evaluador
+          ref: main
+          path: .recursos-evaluador
+
+      - name: Apply post_k8s_stacks
+        uses: ./.recursos-evaluador/.github/actions/apply-terraform-stacks
+        with:
+          stacks-json: ${{ needs.config.outputs.post_k8s_stacks }}
+          environment: ${{ inputs.environment }}
+          default-env: ${{ needs.config.outputs.default_env }}
+          tf-state-bucket-name: ${{ vars.TF_STATE_BUCKET_NAME }}
+          db-username: ${{ secrets.DB_USERNAME }}
+          db-password: ${{ secrets.DB_PASSWORD }}
+          previous-outputs-json: ${{ needs.terraform.outputs.tf_outputs }}

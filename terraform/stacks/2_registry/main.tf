@@ -60,3 +60,10 @@ module "card_worker_repository" {
   repository_name  = var.card_worker_repository_name
 }
 
+module "user_verification_callback_repository" {
+  source = "../../modules/repository"
+  keep_tags_number = var.keep_tags_number
+  repository_name  = var.user_verification_callback_repository_name
+}
+
+

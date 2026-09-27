@@ -8,7 +8,7 @@ resource "random_id" "secret_suffix" {
 
 # Agregamos un sufijo aleatorio al nombre del secreto para evitar colisiones
 resource "aws_secretsmanager_secret" "db_credentials" {
-  name        = "${var.secret_name}${random_id.secret_suffix.hex}"
+  name        = "${var.secret_name}" # ${random_id.secret_suffix.hex}"
   description = "Secret for RDS database credentials including connection details"
 }
 

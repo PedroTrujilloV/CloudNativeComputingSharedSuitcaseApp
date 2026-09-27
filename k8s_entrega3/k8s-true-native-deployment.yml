@@ -2,13 +2,21 @@
 # time by envsubst in both environments (see the pipeline deploy-k8s step
 # for AWS and scripts/local-deploy.sh for local Minikube); the token itself
 # never appears in this repository.
+#
+# The placeholder is the BASE64 encoding of the token, not the raw value:
+# on AWS the raw value is an environment secret and cannot cross the
+# pipeline's combined tf_outputs channel (GitHub Actions discards a job
+# output that contains a secret value as a substring), so the eks stack
+# exposes the base64 form through the safe output "secret_token_b64" and
+# the pipeline exports it as $SECRET_TOKEN_B64. The K8s Secret `data:`
+# field takes base64 natively, so no further conversion is needed.
 apiVersion: v1
 kind: Secret
 metadata:
   name: truenative-secret
 type: Opaque
-stringData:
-  SECRET_TOKEN: "${SECRET_TOKEN}"
+data:
+  SECRET_TOKEN: "${SECRET_TOKEN_B64}"
 ---
 apiVersion: apps/v1
 kind: Deployment

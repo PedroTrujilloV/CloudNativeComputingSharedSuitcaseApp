@@ -125,11 +125,13 @@ secret of the same name). No recipient address is hardcoded anywhere in
 this repository: this service only publishes to the topic, and the
 subscription delivers the message.
 
-- The topic ARN is the `user_verification_topic_arn` output of the
-  `4_sns` stack; the deploy pipeline exports it as
-  `USER_VERIFICATION_TOPIC_ARN` for the envsubst step that applies the
-  Kubernetes manifests (the `${USER_VERIFICATION_TOPIC_ARN}`
-  placeholder in `k8s_entrega2/28-user-verification-callback.yml`).
+- The topic ARN is reconstructed in
+  `k8s_entrega2/28-user-verification-callback.yml` at apply time by the
+  deploy pipeline envsubst from the safe `user_verification_topic_name`
+  output of the `4_sns` stack plus `$AWS_REGION` and `$ACCOUNT_ID` (the
+  full ARN embeds the AWS account id, so it cannot be a terraform
+  output), filling the `${USER_VERIFICATION_TOPIC_ARN}` env of the
+  deployment.
 - The AWS credentials of the publish call come from the cluster node
   role through the default boto3 chain (the pod runs on the managed
   node group); nothing AWS related is stored in this repository.

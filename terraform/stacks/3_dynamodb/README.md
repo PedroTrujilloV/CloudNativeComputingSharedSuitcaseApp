@@ -58,12 +58,15 @@ The legacy applications keep using the shared RDS PostgreSQL instance of the
 | Output | Description |
 |---|---|
 | `credit_cards_table_name` | Name of the table. |
-| `credit_cards_table_arn` | ARN of the table. |
 
-The outputs are exposed to the Kubernetes manifest step of the deploy
-pipeline as environment variables (`CREDIT_CARDS_TABLE_NAME`,
-`CREDIT_CARDS_TABLE_ARN`), so the `credit_cards_app` manifest can read the
-table name without hardcoding it.
+The output is exposed to the Kubernetes manifest step of the deploy
+pipeline as the environment variable `CREDIT_CARDS_TABLE_NAME`, so the
+`credit_cards_app` manifest can read the table name without hardcoding
+it. The table ARN is deliberately not exposed: it embeds the AWS account
+id (the value of the `ACCOUNT_ID` environment secret), and the pipeline
+merges every stack output into a single JSON that GitHub Actions
+silently discards when it contains a secret value. The ARN remains
+available via `aws dynamodb describe-table`.
 
 ## Local plan prerequisite
 

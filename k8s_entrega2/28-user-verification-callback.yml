@@ -11,11 +11,14 @@
 # folder by the deploy pipeline); the pod waits for it the same way the
 # users-app pod does.
 #
-# The USER_VERIFICATION_TOPIC_ARN placeholder is resolved by the envsubst
-# step of the deploy pipeline from the user_verification_topic_arn output
-# of the 4_sns Terraform stack (the ARN of the RF-007 SNS email topic).
-# The topic carries the email subscription to the address configured at
-# deploy time (EMAIL_TO_NOTIFY), so no recipient address appears here.
+# USER_VERIFICATION_TOPIC_ARN is reconstructed by the envsubst step of
+# the deploy pipeline from the safe user_verification_topic_name output
+# of the 4_sns Terraform stack plus $AWS_REGION and $ACCOUNT_ID (the full
+# ARN embeds the AWS account id, so it cannot be a terraform output: the
+# pipeline's combined tf_outputs JSON is discarded by GitHub Actions when
+# it contains a secret value). The topic carries the email subscription
+# to the address configured at deploy time (EMAIL_TO_NOTIFY), so no
+# recipient address appears here.
 ---
 # ============================================================
 # user-verification-callback Deployment
@@ -51,7 +54,16 @@ spec:
             - name: USERS_SERVICE_URL
               value: "http://users-app-service:8000"
             - name: USER_VERIFICATION_TOPIC_ARN
-              value: "${USER_VERIFICATION_TOPIC_ARN}"
+              # Reconstructed here instead of coming from the 4_sns stack
+              # output: the full ARN embeds the AWS account id, which is the
+              # value of the ACCOUNT_ID environment secret, so exposing it as
+              # a terraform output would poison the pipeline's combined
+              # tf_outputs (GitHub Actions discards job outputs containing a
+              # secret value). The safe topic name comes from the
+              # user_verification_topic_name output of the 4_sns stack;
+              # AWS_REGION and ACCOUNT_ID are provided by the pipeline
+              # itself.
+              value: "arn:aws:sns:${AWS_REGION}:${ACCOUNT_ID}/${USER_VERIFICATION_TOPIC_NAME}"
             - name: SECRET_TOKEN
               valueFrom:
                 secretKeyRef:

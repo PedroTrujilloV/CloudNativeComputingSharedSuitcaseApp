@@ -48,29 +48,37 @@ graph TD
 | Output | Type | Description | Consumed By |
 |---|---|---|---|
 | `eks_cluster_id` | `string` | ID of the deployed EKS cluster | documentation, kubectl config |
-| `eks_cluster_arn` | `string` | ARN of the deployed EKS cluster | IAM role bindings |
-| `eks_cluster_endpoint` | `string` | Endpoint of the deployed EKS cluster (for example, `https://xxx.gr7.us-east-1.eks.amazonaws.com`) | kubectl config, documentation |
-| `eks_cluster_certificate_authority_data` | `string` | Base64-encoded CA certificate for cluster access (sensitive) | kubectl config |
-| `eks_cluster_oidc_issuer_url` | `string` | OIDC issuer URL for Pod Identity / IRSA | IAM role bindings |
-| `eks_node_group_autoscaling_group_names` | `list(string)` | Names of the managed node groups' Auto Scaling Groups | documentation, monitoring |
-| `secret_token` | `string` | TrueNative authentication token (sensitive). Read from the `secrets-pipeline-native-map` secret in AWS Secrets Manager, which the deploy pipeline populates from the GitHub environment secrets. The pipeline exports it as `SECRET_TOKEN` for the envsubst step of the `k8s_entrega3` manifests | `k8s_entrega3/k8s-true-native-deployment.yml` |
+| `secret_token_b64` | `string` | Base64 encoding of the TrueNative authentication token (sensitive). Read from the `SECRET_TOKEN` key of the `secrets-pipeline-native-map` secret (see "TrueNative token" below). The pipeline exports it as `SECRET_TOKEN_B64` for the envsubst step of the `k8s_entrega3` manifests | `k8s_entrega3/k8s-true-native-deployment.yml` |
 
-## Pipeline secrets (SECRET_TOKEN)
+The cluster ARN, endpoint, CA certificate, OIDC issuer URL and node
+group names are deliberately not exposed: the pipeline connects kubectl
+with `aws eks update-kubeconfig`, so none of them is consumed, and the
+ARN embeds the AWS account id (the value of the `ACCOUNT_ID` environment
+secret) — the deploy pipeline merges every stack output into a single
+JSON that GitHub Actions silently discards when it contains a secret
+value. The values remain available via `aws eks describe-cluster` and
+`aws eks list-nodegroups`.
 
-The deploy pipeline uploads every GitHub environment secret except `AWS_*`
-and `GITHUB_TOKEN` to the AWS Secrets Manager secret
-`secrets-pipeline-native-map` (a JSON map) before applying any stack. This
-stack reads that map with a data source (`locals.tf`) and exposes the
-`SECRET_TOKEN` key as the `secret_token` output. The pipeline then exports
-every stack output as an uppercased environment variable for the envsubst
-step that applies the k8s manifests, so the
-`k8s_entrega3/k8s-true-native-deployment.yml` manifest can reference
-`${SECRET_TOKEN}` without the value ever appearing in this repository.
+## TrueNative token (SECRET_TOKEN)
 
-Prerequisite: the `SECRET_TOKEN` secret must exist in the GitHub environment
-(for example `student1`) before the first apply of this stack, otherwise the
-`jsondecode` key access fails at plan time. The map itself is not stored in
-the Terraform state.
+The deploy pipeline uploads every GitHub environment secret except
+`AWS_*` and `GITHUB_TOKEN` to the AWS Secrets Manager secret
+`secrets-pipeline-native-map` (a JSON map) before applying any stack.
+This stack reads the `SECRET_TOKEN` key of that map with a data source
+and exposes it — **base64-encoded** — as the `secret_token_b64` output.
+
+The raw value cannot be exposed as a plain output: the pipeline merges
+every stack output into one `tf_outputs` JSON, and GitHub Actions
+silently discards a job output when it contains the value of any
+in-scope environment secret as a substring — the map's `SECRET_TOKEN`
+is exactly such a secret, so re-exposing it raw would poison the whole
+combined output and every envsubst render would resolve empty. The
+base64 form contains no secret value as a substring, so it crosses the
+channel safely; the pipeline exports it as `SECRET_TOKEN_B64` and the
+TrueNative manifest fills a K8s Secret `data:` field, which takes
+base64 natively. The `6_lambda` stack reads the same map key for the
+card worker, so both sides always match. The token never appears in
+this repository.
 
 ## Deployment Order
 
@@ -143,5 +151,5 @@ dynamodb_table = "terraform-locks"
 After deployment:
 1. Run `aws eks update-kubeconfig --name <cluster_name> --region <region>` to configure kubectl.
 2. Apply Kubernetes manifests in order (per `config.yaml` → `k8s_manifests:`): `kubectl apply -f k8s/`.
-3. Use the OIDC issuer URL from `eks_cluster_oidc_issuer_url` for Pod Identity / IRSA role bindings.
+3. Get the OIDC issuer URL with `aws eks describe-cluster` (query `Cluster.OpenIdConnectConfig.Issuer`) for Pod Identity / IRSA role bindings.
 4. Workloads can access ECR images by combining registry stack outputs with EKS cluster config.

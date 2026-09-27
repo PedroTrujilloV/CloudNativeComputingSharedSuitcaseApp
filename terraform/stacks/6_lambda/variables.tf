@@ -17,7 +17,11 @@ variable "lambda_function_name" {
 }
 
 variable "lambda_role_name" {
-  description = "Nombre del rol IAM de ejecución del worker (permiso mínimo)."
+  # Unused in this stack: the academic lab accounts cannot create IAM
+  # roles, so the function uses the pre-provisioned LabRole of the
+  # account. Declared only because the environment tfvars of the course
+  # still pass it.
+  description = "Name of the execution role (unused; the lab accounts provide LabRole in advance)."
   type        = string
   nullable    = false
 }

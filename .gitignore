@@ -234,3 +234,4 @@ override.tf.json
 styles
 k8s_temp_deploy
 k8s_temp_local_deploy/
+newman/

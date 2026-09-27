@@ -14,11 +14,12 @@
 #      (ClusterIP services are not externally reachable; the Ingress
 #      is the single entry point for all external traffic).
 #   3. Runs a functional smoke test through the Ingress: creates a
-#      user, checks that the login is rejected while the user is not
-#      VERIFICADO, applies the verification status (the same PATCH the
-#      verification callback component performs), authenticates,
-#      creates a post with the RF-003 orchestrator and reads the post
-#      back from posts_app. Also checks
+#      user, checks that the login is rejected while the user is
+#      POR_VERIFICAR, lets the TrueNative webhook reach the
+#      user-verification-callback component (which updates the status
+#      through the users_app API), waits until the user is VERIFICADO,
+#      authenticates, creates a post with the RF-003 orchestrator and
+#      reads the post back from posts_app. Also checks
 #      the credit cards application error responses that do not need
 #      the AWS stacks (403, 401, 400, 412), for both the creation
 #      endpoint and the listing endpoint.
@@ -121,7 +122,7 @@ echo "==> [1/5] Checking pods, services and ingress"
 for pod in shared-db \
   users-app posts-app offers-app routes-app scores-app \
   rf003-create-post-app rf004-create-offer-app rf005-query-post-app \
-  credit-cards-app truenative; do
+  credit-cards-app truenative user-verification-callback; do
   status="$(kubectl get pod -l app="${pod}" -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo missing)"
   if [ "$status" = "Running" ]; then
     pass "pod ${pod} is Running"
@@ -135,6 +136,7 @@ for svc in users-app-service posts-app-service offers-app-service \
   rf004-create-offer-service rf005-query-post-service \
   credit-cards-service \
   truenative-service \
+  user-verification-callback-service \
   shared-db-service; do
   if kubectl get service "$svc" >/dev/null 2>&1; then
     pass "service ${svc} exists"
@@ -167,7 +169,8 @@ for svc in users-app-service posts-app-service offers-app-service \
   routes-app-service scores-app-service rf003-create-post-service \
   rf004-create-offer-service rf005-query-post-service \
   credit-cards-service \
-  truenative-service; do
+  truenative-service \
+  user-verification-callback-service; do
   svc_type="$(kubectl get service "$svc" -o jsonpath='{.spec.type}' 2>/dev/null)"
   if [ "$svc_type" = "ClusterIP" ]; then
     pass "service ${svc} type is ClusterIP"
@@ -254,8 +257,9 @@ fi
 
 # ------------------------------------------------------------
 # 3. Functional smoke test through the Ingress
-#    (user -> login rejected while not VERIFICADO -> apply the
-#     verification status -> auth -> RF-003 create post -> read back)
+#    (user -> login rejected while POR_VERIFICAR -> TrueNative webhook
+#     through the callback component -> VERIFICADO -> auth -> RF-003
+#     create post -> read back)
 # ------------------------------------------------------------
 echo "==> [3/5] Functional smoke test through the Ingress"
 
@@ -274,6 +278,20 @@ for key in sys.argv[2].split("."):
 print(value)
 ' "$1" "$2"
 }
+
+# 3.0 Configure TrueNative so the identity verification webhook
+#     verifies the user (the grader collection applies the same body).
+#     It must happen before the user creation: TrueNative reads its
+#     environment at the time of the verification request.
+curl -s --max-time 10 -o "$TMP_BODY" -w "%{http_code}" -X POST "${INGRESS}/native/env" \
+  -H "Content-Type: application/json" \
+  -d '{"SUCCESS_RATE": 100, "MAX_POLL_DELAY": 5, "MAX_WEBHOOK_DELAY": 5}' > "$TMP_BODY.code" 2>/dev/null || echo 000 > "$TMP_BODY.code"
+CODE="$(cat "$TMP_BODY.code")"
+if [ "$CODE" = "200" ]; then
+  pass "POST /native/env (SUCCESS_RATE=100, MAX_WEBHOOK_DELAY=5) -> 200"
+else
+  fail "POST /native/env -> ${CODE} (expected 200) body: $(cat "$TMP_BODY")"
+fi
 
 # 3.1 Create a user
 NOW="$(date +%s)"
@@ -310,19 +328,27 @@ if [ -n "$USER_ID" ]; then
     fail "POST /users/auth -> ${CODE} (expected 401 while unverified)"
   fi
 
-  # 3.3 Apply the verification result the same way the verification
-  #     callback component does. The local Minikube deployment does not
-  #     run that component, so the TrueNative webhook cannot arrive on
-  #     its own; the platform exposes the same status update through
-  #     PATCH /users/{id}.
-  curl -s --max-time 10 -o "$TMP_BODY" -w "%{http_code}" -X PATCH "${INGRESS}/users/${USER_ID}" \
-    -H "Content-Type: application/json" \
-    -d '{"status": "VERIFICADO"}' > "$TMP_BODY.code" 2>/dev/null || echo 000 > "$TMP_BODY.code"
-  CODE="$(cat "$TMP_BODY.code")"
-  if [ "$CODE" = "200" ]; then
-    pass "PATCH /users/{id} -> 200 (status VERIFICADO applied)"
+  # 3.3 Wait for the verification webhook to complete the loop:
+  #     users_app -> TrueNative -> user-verification-callback (signature
+  #     check) -> users_app status update. The webhook is delayed 5
+  #     seconds by the TrueNative configuration above, so poll the
+  #     login until the user is VERIFICADO.
+  VERIFIED=0
+  for i in $(seq 1 20); do
+    curl -s --max-time 10 -o "$TMP_BODY" -w "%{http_code}" -X POST "${INGRESS}/users/auth" \
+      -H "Content-Type: application/json" \
+      -d "{\"username\": \"${USERNAME}\", \"password\": \"Secret123!\"}" > "$TMP_BODY.code" 2>/dev/null || echo 000 > "$TMP_BODY.code"
+    CODE="$(cat "$TMP_BODY.code")"
+    if [ "$CODE" = "200" ]; then
+      VERIFIED=1
+      break
+    fi
+    sleep 2
+  done
+  if [ "$VERIFIED" = "1" ]; then
+    pass "user reached VERIFICADO via the webhook + callback (auth -> 200 on poll ${i})"
   else
-    fail "PATCH /users/{id} -> ${CODE} (expected 200) body: $(cat "$TMP_BODY")"
+    fail "user is still not VERIFICADO after 40 s of polling (last auth code: ${CODE}); the webhook path users_app -> TrueNative -> user-verification-callback -> users_app did not complete"
   fi
 fi
 

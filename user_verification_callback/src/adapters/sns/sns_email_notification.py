@@ -1,10 +1,11 @@
 """SNS adapter: the email notification of the verification result.
 
 The notification mechanism is the SNS email topic provisioned for RF-007
-by the ``4_sns`` Terraform stack (TASK-003). The deploy pipeline exports
-the ``user_verification_topic_arn`` stack output as the
-``USER_VERIFICATION_TOPIC_ARN`` environment variable for the envsubst
-step that applies the Kubernetes manifests, so the topic ARN is provided
+by the ``4_sns`` Terraform stack (TASK-003). The callback manifest
+reconstructs the full topic ARN at apply time from the safe
+``user_verification_topic_name`` stack output plus ``$AWS_REGION`` and
+``$ACCOUNT_ID`` (the full ARN embeds the AWS account id, so it cannot be
+a terraform output of the pipeline), so the topic ARN is provided
 through the environment and no recipient address appears in this code:
 the topic's email subscription delivers the message to the address
 configured at deploy time.

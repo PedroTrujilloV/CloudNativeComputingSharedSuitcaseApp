@@ -61,7 +61,10 @@ QUEUE_NAME="${QUEUE_NAME:-grupo33-card-verification}"
 DLQ_NAME="${DLQ_NAME:-grupo33-card-verification-dlq}"
 TABLE_NAME="${TABLE_NAME:-grupo33-credit-cards}"
 FUNCTION_NAME="${FUNCTION_NAME:-grupo33-card-worker}"
-ROLE_NAME="${ROLE_NAME:-grupo33-card-worker-role}"
+# The academic lab accounts do not allow iam:CreateRole or
+# iam:PutRolePolicy, so the 6_lambda stack runs the worker under the
+# pre-provisioned LabRole (see terraform/stacks/6_lambda/main.tf).
+ROLE_NAME="${ROLE_NAME:-LabRole}"
 TOPIC_NAME="${TOPIC_NAME:-grupo33-card-verification-notifications}"
 
 SKIP_INFRA=false
@@ -259,10 +262,12 @@ if [ "${SKIP_INFRA}" = "false" ]; then
     fail "lambda function ${FUNCTION_NAME} is not Active (state: ${LAMBDA_STATE:-missing}, apply the 6_lambda stack)"
   fi
 
-  if aws iam get-role --region "${REGION}" --role-name "${ROLE_NAME}" >/dev/null 2>&1; then
-    pass "iam role ${ROLE_NAME} exists"
+  FUNCTION_ROLE_ARN="$(aws lambda get-function --region "${REGION}" --function-name "${FUNCTION_NAME}" \
+    --query 'Configuration.Role' --output text 2>/dev/null)"
+  if [ "${FUNCTION_ROLE_ARN:-}" = "arn:aws:iam::${ACCOUNT_ID}:role/${ROLE_NAME}" ]; then
+    pass "lambda function ${FUNCTION_NAME} runs under the role ${ROLE_NAME}"
   else
-    fail "iam role ${ROLE_NAME} does not exist (apply the 6_lambda stack)"
+    fail "lambda function ${FUNCTION_NAME} does not run under the role ${ROLE_NAME} (role: ${FUNCTION_ROLE_ARN:-missing})"
   fi
 
   if [ -n "${QUEUE_URL}" ] && [ "${QUEUE_URL}" != "None" ]; then
@@ -289,13 +294,21 @@ if [ "${SKIP_INFRA}" = "false" ]; then
     fail "kubectl cannot reach the cluster (deploy it or fix the kubeconfig)"
   fi
 
-  LB_DNS="$(aws elbv2 describe-load-balancers --region "${REGION}" --output json \
-    | jq -r '.LoadBalancers[] | select(.Tags[]? | .Key=="kubernetes.io/service-name" and .Value=="ingress-nginx/ingress-nginx-controller") | .DNSName' | head -1)"
+  # Resolve the ingress host. The ingress is an NGINX LoadBalancer (a
+  # classic ELB on EKS; the academic account has no ALB, so the elbv2 API
+  # finds nothing). Prefer the authoritative kubectl read, fall back to the
+  # classic ELB API by tag.
+  LB_DNS="$(kubectl -n ingress-nginx get svc ingress-nginx-controller \
+    -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)"
+  if [ -z "${LB_DNS}" ]; then
+    LB_DNS="$(aws elb describe-load-balancers --region "${REGION}" --output json \
+      | jq -r '.LoadBalancerDescriptions[] | select(.Tags[]? | .Key=="kubernetes.io/service-name" and .Value=="ingress-nginx/ingress-nginx-controller") | .DNSName' | head -1)"
+  fi
   if [ -n "${LB_DNS}" ]; then
     BASE="https://${LB_DNS}"
     pass "ingress load balancer found at ${LB_DNS}"
   else
-    fail "ingress load balancer not found (tag kubernetes.io/service-name=ingress-nginx/ingress-nginx-controller); apply the k8s manifests first"
+    fail "ingress load balancer not found (service ingress-nginx/ingress-nginx-controller has no hostname); apply the k8s manifests first"
   fi
 fi
 
@@ -342,13 +355,33 @@ else
   fail "POST /users -> ${CODE} (expected 201)"
 fi
 
-TOKEN="$(http_body "${BASE}/users/auth" -X POST -H "Content-Type: application/json" \
-  -d "{\"username\": \"${USERNAME}\", \"password\": \"Secret123!\"}" | json_field token 2>/dev/null)"
+# A fresh user is POR_VERIFICAR: the bearer token only exists once the
+# TrueNative webhook reaches the in cluster callback (the
+# MAX_WEBHOOK_DELAY configured above, 5 seconds, plus the callback round
+# trip). Poll the auth endpoint until the loop completes, the same wait
+# the graded collection does in its pre request script.
+TOKEN=""
+AUTH_CODE=""
+for i in $(seq 1 15); do
+  AUTH_RAW="$(curl -sk -w '\n%{http_code}' --max-time 10 -X POST \
+    -H "Content-Type: application/json" \
+    "${BASE}/users/auth" \
+    -d "{\"username\": \"${USERNAME}\", \"password\": \"Secret123!\"}" 2>/dev/null)"
+  AUTH_CODE="$(printf '%s' "${AUTH_RAW}" | tail -n 1)"
+  if [ "${AUTH_CODE}" = "200" ]; then
+    AUTH_BODY="$(printf '%s' "${AUTH_RAW}" | sed '$d')"
+    TOKEN="$(printf '%s' "${AUTH_BODY}" | json_field token 2>/dev/null)"
+    if [ -n "${TOKEN}" ] && [ "${TOKEN}" != "None" ]; then
+      break
+    fi
+  fi
+  sleep 5
+done
 if [ -n "${TOKEN}" ] && [ "${TOKEN}" != "None" ]; then
-  pass "POST /users/auth -> 200 (token obtained)"
+  pass "POST /users/auth -> 200 (token obtained on poll ${i}; the webhook loop completed)"
 else
   TOKEN=""
-  fail "POST /users/auth did not return a token"
+  fail "POST /users/auth did not return a token within 75 s (last code: ${AUTH_CODE:-000}); the webhook path users_app -> TrueNative -> user-verification-callback did not complete"
 fi
 
 # ------------------------------------------------------------
@@ -419,7 +452,7 @@ fi
 CREATED1_RAW="$(curl -sk -w '\n%{http_code}' --max-time 15 -X POST \
   -H "Content-Type: application/json" -H "Authorization: Bearer ${TOKEN}" \
   "${BASE}/credit-cards" -d "${CARD_BODY}" 2>/dev/null)"
-CREATE1_BODY="$(printf '%s' "${CREATED1_RAW}" | head -n -1)"
+CREATE1_BODY="$(printf '%s' "${CREATED1_RAW}" | sed '$d')"
 CREATE1_CODE="$(printf '%s' "${CREATED1_RAW}" | tail -n 1)"
 CARD1_ID="$(echo "${CREATE1_BODY}" | json_field id 2>/dev/null)"
 CREATED_CARD_IDS+=("${CARD1_ID}")
@@ -507,7 +540,7 @@ CARD_BODY_2="{\"cardNumber\": \"${CARD_NUMBER_2}\", \"cvv\": \"${CARD_CVV}\", \"
 CREATED2_RAW="$(curl -sk -w '\n%{http_code}' --max-time 15 -X POST \
   -H "Content-Type: application/json" -H "Authorization: Bearer ${TOKEN}" \
   "${BASE}/credit-cards" -d "${CARD_BODY_2}" 2>/dev/null)"
-CREATE2_BODY="$(printf '%s' "${CREATED2_RAW}" | head -n -1)"
+CREATE2_BODY="$(printf '%s' "${CREATED2_RAW}" | sed '$d')"
 CREATE2_CODE="$(printf '%s' "${CREATED2_RAW}" | tail -n 1)"
 CARD2_ID="$(echo "${CREATE2_BODY}" | json_field id 2>/dev/null)"
 CREATED_CARD_IDS+=("${CARD2_ID}")
@@ -608,7 +641,7 @@ if [ "${KEEP_CARDS}" = "false" ]; then
   # expansion keeps the loop working on bash 3.2 (macOS default) when
   # the array is still empty under `set -u`.
   RESET_RAW="$(curl -sk -w '\n%{http_code}' --max-time 15 -X POST "${BASE}/credit-cards/reset" 2>/dev/null)"
-  RESET_BODY="$(printf '%s' "${RESET_RAW}" | head -n -1)"
+  RESET_BODY="$(printf '%s' "${RESET_RAW}" | sed '$d')"
   RESET_CODE="$(printf '%s' "${RESET_RAW}" | tail -n 1)"
   if [ "${RESET_CODE}" = "200" ] && printf '%s' "${RESET_BODY}" | grep -q "Todos los datos fueron eliminados"; then
     COUNT_AFTER="$(http_body "${BASE}/credit-cards/count" | json_field count 2>/dev/null)"

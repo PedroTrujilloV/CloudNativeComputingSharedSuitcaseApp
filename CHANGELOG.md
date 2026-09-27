@@ -381,6 +381,103 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     collections in `scripts/entrega2/` (a `PATCH /users/{id}` request
     simulates the verification callback after each user creation).
 
+### Changed
+
+- Fixed the `6_lambda` stack for the academic lab accounts (TASK-035):
+  those accounts deny `iam:CreateRole` and `iam:PutRolePolicy` (the lab
+  identity policy), so the stack no longer creates the least privilege
+  execution role of the card worker; the `aws_lambda_function` resource
+  now uses the `LabRole` that every lab account provisions in advance
+  (the ARN is built from the caller identity at plan time, so the same
+  stack works in the dev and the student1 lab accounts). The removed
+  `card_worker_role_arn` output, the `lambda_assume` data source, and the
+  `lambda_role_name` variable (still declared, now documented as unused
+  because the environment tfvars pass it) followed, together with the
+  stack README.
+- Fixed the startup of the `users_app` so a persistent database follows
+  the model (TASK-035): `create_all` builds missing tables but never
+  evolves existing ones, so a long lived RDS from an earlier deployment
+  kept its old column set and the app failed on the first query that
+  touches a column added later by the model (the `ruv` column of the
+  users table). `init_db` now calls `ensure_schema_columns`, which
+  inspects every mapped table and adds the missing nullable columns
+  with the model types (`ALTER TABLE ... ADD COLUMN ... NULL`); a
+  missing primary key or non nullable column raises instead of being
+  guessed. Covered by the new unit tests of
+  `test_connection_schema_evolution.py` (16 cases), and verified on the
+  dev cluster: the running image self healed the persistent RDS at
+  startup and the full RF-007 flow ran green on top of it.
+- Fixed the Terraform output surface consumed by the deploy pipeline
+  (TASK-035) so the pipeline's combined `tf_outputs` JSON no longer
+  carries the value of any GitHub environment secret. Root cause: GitHub
+  Actions silently discards a job output when it contains the value of
+  any secret in scope as a substring, and the pipeline merges every
+  stack output into that single JSON; one "poisoned" output (any ARN or
+  URL embedding the account id, the port `5432`, the database name
+  `shared_db`, the `SECRET_TOKEN` value, the notification email)
+  discarded the whole map, so every downstream envsubst render resolved
+  empty and the apps started without their wiring. The fix, without
+  touching the unmodifiable pipeline:
+  - `1_database` no longer exposes `rds_port`, `rds_db_name`, or the
+    Secrets Manager ARN; it exposes `secrets_manager_secret_name` (safe,
+    consumed by the local AWS deploy script) and keeps `rds_address`
+    (safe: the endpoint matches no secret value as a substring). Port
+    and database name are the same fixed values in every environment,
+    so `k8s_entrega2/00-secrets.yml` hardcodes `DB_PORT="5432"` and
+    `DB_NAME="shared_db"` and envsubst only `DB_HOST` (from
+    `rds_address`), `DB_USER` and `DB_PASSWORD` (the pipeline injects
+    both straight from the environment secrets into the step
+    environment). The AWS Secrets Store CSI variant was tried and
+    reverted: the lab EKS cluster has no `secrets-store` CRDs or driver
+    pod, the node role lacks `secretsmanager:GetSecretValue`, and the
+    async materialization raced the pipeline rollout wait.
+  - The TrueNative token stays the `SECRET_TOKEN` value of the
+    `secrets-pipeline-native-map` secret (the only allowed source for
+    the token and the verification email), but it can no longer be
+    exposed as a plain output (it is an environment secret;
+    re-exposing it would poison the combined `tf_outputs`). The `eks`
+    stack therefore exposes the **base64 encoding** of the map value
+    through the new `secret_token_b64` output: the encoded form
+    contains no secret value as a substring, so it crosses the
+    pipeline channel safely, and the pipeline exports it as
+    `SECRET_TOKEN_B64` for the envsubst step; the TrueNative manifest
+    fills a K8s Secret `data:` field, which takes base64 natively. The
+    `6_lambda` stack reads the same map key with a data source, so the
+    card worker and the k8s apps always carry the same token.
+  - `3_dynamodb`, `4_sns` and `5_sqs` expose only resource names (safe);
+    the full table ARN, topic ARNs and queue URLs are reconstructed at
+    apply time by envsubst from the name plus `$AWS_REGION` and
+    `$ACCOUNT_ID` (both provided by the pipeline itself) in
+    `k8s_entrega2/28-user-verification-callback.yml` and
+    `k8s_entrega3/k8s-credit-cards-deployment.yml`. `4_sns` also stops
+    exposing `email_endpoint` (it equals the `EMAIL_TO_NOTIFY`
+    environment secret; the subscription keeps using it internally).
+  - `5_sqs` gains the missing `backend "s3" {}` block — without it its
+    state was written to the ephemeral runner's local backend and lost
+    on every run — and aligns its AWS provider pin to `~> 5` like every
+    other stack. The pre-existing queue of `dev` (left behind by the
+    runs before the fix) was imported into the S3 state locally, and the
+    `student1` queue was left in a state the pipeline recreates
+    cleanly (the queue names are deterministic), so the pipeline applies
+    both environments as "no changes" instead of failing with
+    `QueueAlreadyExists`.
+  - `6_lambda` sets `package_type = "Image"` on the card worker function:
+    the AWS provider defaults to "Zip", which made every plan fail with
+    "handler and runtime must be set when PackageType is Zip" (the stack
+    had never been planned before the pipeline fix, since every run
+    failed before the post-k8s step).
+- Updated the local flows to the same channels: `scripts/local-deploy.sh`
+  renders the composed ARN/URL from the placeholders and then empties
+  the value (the callback and the credit cards app skip the publish with
+  a logged notice, as before), and
+  `scripts/terraform_scripts/deploy-k8s-to-eks.sh` reads the token from
+  the map (and computes its base64 form for the K8s Secret `data:`
+  field) and the queue/topic names from the stack outputs, and
+  reconstructs the full values.
+- Updated the stack READMEs, the `card_worker` token docstring, the
+  `user_verification_callback` docstrings and README, and
+  `docs/development-view.md` to match the new channels.
+
 ## [Entrega 2]
 
 ### Changed

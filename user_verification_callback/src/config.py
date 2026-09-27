@@ -52,12 +52,16 @@ class Settings:
     def user_verification_topic_arn(cls) -> str:
         """ARN of the RF-007 SNS email topic.
 
-        The deploy pipeline exports the ``user_verification_topic_arn``
-        output of the ``4_sns`` Terraform stack as the
-        ``USER_VERIFICATION_TOPIC_ARN`` environment variable for the
-        envsubst step that applies the Kubernetes manifests. When it is
-        empty (local runs without the AWS stack) the email notification
-        is skipped with a logged notice.
+        The callback manifest
+        (``k8s_entrega2/28-user-verification-callback.yml``) reconstructs
+        the full ARN at apply time from the safe
+        ``user_verification_topic_name`` output of the ``4_sns`` stack
+        plus ``$AWS_REGION`` and ``$ACCOUNT_ID`` (the full ARN embeds the
+        AWS account id, so it cannot be a terraform output of the
+        pipeline), and the deploy pipeline envsubst fills the
+        ``${USER_VERIFICATION_TOPIC_ARN}`` placeholder. When the value
+        is empty (local runs without the AWS stack) the email
+        notification is skipped with a logged notice.
         """
         return os.getenv("USER_VERIFICATION_TOPIC_ARN", "")
 

@@ -1,6 +1,7 @@
 import httpx2
 import pytest
 
+from adapters.truenative import http_card_poller_adapter
 from adapters.truenative.http_card_poller_adapter import HttpCardPollerAdapter
 from errors import TrueNativePollingError
 
@@ -132,3 +133,42 @@ def test_a_network_failure_raises():
 
     with pytest.raises(TrueNativePollingError):
         adapter.check_status("ruv-1")
+
+
+# ---------------------------------------------------------------------------
+# Base URL resolution (explicit env var vs Lambda discovery vs local default)
+# ---------------------------------------------------------------------------
+
+
+def test_an_explicit_truenative_url_wins_over_the_discovery(monkeypatch):
+    monkeypatch.setenv("TRUENATIVE_URL", "http://explicit.test")
+    monkeypatch.setenv("AWS_LAMBDA_FUNCTION_NAME", "card-worker")
+
+    adapter = HttpCardPollerAdapter()
+
+    assert adapter.base_url == "http://explicit.test"
+
+
+def test_on_lambda_without_an_explicit_url_the_host_is_discovered(monkeypatch):
+    monkeypatch.delenv("TRUENATIVE_URL")
+    monkeypatch.setenv("AWS_LAMBDA_FUNCTION_NAME", "card-worker")
+    monkeypatch.setattr(
+        http_card_poller_adapter.ingress_discovery,
+        "discover_truenative_base_url",
+        lambda: "https://discovered.test",
+    )
+
+    adapter = HttpCardPollerAdapter()
+
+    assert adapter.base_url == "https://discovered.test"
+
+
+def test_off_lambda_without_an_explicit_url_uses_the_in_cluster_service(
+    monkeypatch,
+):
+    monkeypatch.delenv("TRUENATIVE_URL")
+    monkeypatch.delenv("AWS_LAMBDA_FUNCTION_NAME", raising=False)
+
+    adapter = HttpCardPollerAdapter()
+
+    assert adapter.base_url == "http://truenative-service"

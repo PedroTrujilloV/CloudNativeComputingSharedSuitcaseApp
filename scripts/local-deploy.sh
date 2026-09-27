@@ -9,7 +9,8 @@
 #   1. Removes old Minikube clusters, Docker images and containers.
 #   2. Starts a fresh Minikube cluster with the ingress addon.
 #   3. Builds all application images into the Minikube Docker daemon
-#      (the eight legacy and Entrega 2 apps plus credit-cards-app).
+#      (the eight legacy and Entrega 2 apps plus the Entrega 3 apps:
+#      credit-cards-app and user-verification-callback).
 #   4. Applies the k8s_entrega2/ manifests in the documented deployment order.
 #   5. Deploys the k8s_entrega3/ workloads (TrueNative with the
 #      SECRET_TOKEN loaded from the out of repo
@@ -54,7 +55,7 @@ docker system prune -f >/dev/null 2>&1 || true
 # ------------------------------------------------------------
 # 2. Fresh cluster with the ingress addon
 #    Sizes can be overridden: MINIKUBE_CPUS=4 MINIKUBE_MEMORY=7g
-#    (defaults fit a Docker Desktop with 8 GB allocated)
+#    (defaults fit a Docker Desktop with 8 GB allocated) But keep it small for the GitHub Actions runner (2 CPUs, 4 GB) and local manual tests on a laptop (2 CPUs, 4 GB). The runner has 2 CPUs and 7 GB RAM, but the Minikube VM needs some overhead for the OS and the ingress controller.
 # ------------------------------------------------------------
 MINIKUBE_CPUS="${MINIKUBE_CPUS:-2}"
 MINIKUBE_MEMORY="${MINIKUBE_MEMORY:-4g}"
@@ -92,6 +93,10 @@ build_app rf004_create_offer_app rf004-create-offer-app:v0.0.0
 build_app rf005_query_post_app rf005-query-post-app:v0.0.0
 # Entrega 3 apps
 build_app credit_cards_app credit-cards-app:v0.0.0
+# RF-007 callback receiver: TrueNative posts the identity verification
+# result to its in cluster service (USER_WEBHOOK_URL in 20-users-app.yml),
+# so it must run in the cluster for the RF-007 flow to complete.
+build_app user_verification_callback user-verification-callback:v0.0.0
 
 # ------------------------------------------------------------
 # 3.b Replace image placeholders in Kubernetes manifests
@@ -136,6 +141,24 @@ replace_image_placeholder "${DEPLOY_DIR}/24-scores-app.yml" "scores-app:v0.0.0"
 replace_image_placeholder "${DEPLOY_DIR}/25-rf003-create-post-app.yml" "rf003-create-post-app:v0.0.0"
 replace_image_placeholder "${DEPLOY_DIR}/26-rf004-create-offer-app.yml" "rf004-create-offer-app:v0.0.0"
 replace_image_placeholder "${DEPLOY_DIR}/27-rf005-query-post-app.yml" "rf005-query-post-app:v0.0.0"
+replace_image_placeholder "${DEPLOY_DIR}/28-user-verification-callback.yml" "user-verification-callback:v0.0.0"
+
+# The RF-007 callback manifest carries one placeholder besides the image
+# URI: the topic name part of the USER_VERIFICATION_TOPIC_ARN value. The
+# full ARN is reconstructed in the manifest from $AWS_REGION, $ACCOUNT_ID
+# and the safe user_verification_topic_name output of the 4_sns stack (the
+# full ARN embeds the AWS account id and therefore cannot be a terraform
+# output of the pipeline — see the manifest comment). Minikube has no such
+# stack, so the topic name is rendered empty here and the composed ARN is
+# emptied out; the callback then skips the email notification with a
+# logged notice (see user_verification_callback/src/config.py). The
+# rendered copy is what the apply loop below consumes.
+echo "    rendering 28-user-verification-callback (empty USER_VERIFICATION_TOPIC_ARN)"
+USER_VERIFICATION_TOPIC_NAME="" \
+  envsubst '${USER_VERIFICATION_TOPIC_NAME}' \
+  < "${DEPLOY_DIR}/28-user-verification-callback.yml" \
+  | sed 's|value: "arn:aws:sns:[^"]*"|value: ""|' \
+  > "${DEPLOY_DIR}/28-user-verification-callback.rendered.yml"
 
 
 # ------------------------------------------------------------
@@ -156,6 +179,7 @@ for f in \
   "${DEPLOY_DIR}/25-rf003-create-post-app.yml" \
   "${DEPLOY_DIR}/26-rf004-create-offer-app.yml" \
   "${DEPLOY_DIR}/27-rf005-query-post-app.yml" \
+  "${DEPLOY_DIR}/28-user-verification-callback.rendered.yml" \
   # "${DEPLOY_DIR}/zz-ingress.yml"
 do
   echo "    applying ${f}"
@@ -168,7 +192,11 @@ kubectl wait --for=condition=ready pod -l app=shared-db --timeout=300s
 # 5. Wait for every Deployment to become ready
 # ------------------------------------------------------------
 echo "==> [6/7] Waiting for Deployments to be ready"
-for d in users-app posts-app offers-app routes-app scores-app \
+# users-app and user-verification-callback are waited for in step 7
+# together with truenative: their pods wait for the truenative-secret
+# that the TrueNative manifest creates there, so both Deployments stay
+# unavailable until step 7 applies it.
+for d in posts-app offers-app routes-app scores-app \
   rf003-create-post-app rf004-create-offer-app rf005-query-post-app; do
   kubectl wait --for=condition=available deployment "$d" --timeout=300s
 done
@@ -183,9 +211,18 @@ done
 #    The dev.env file lives OUTSIDE the repository, one level above the
 #    repo root: <parent-of-repo>/truenative_secrets/dev.env, with a
 #    single line SECRET_TOKEN=<random string>. It is never committed.
+#    The K8s Secret uses a `data:` field, so the manifest placeholder is
+#    the base64 encoding of the token (SECRET_TOKEN_B64), computed below
+#    — the same base64 channel the AWS pipeline uses through the safe
+#    eks output "secret_token_b64" (the raw value is an environment
+#    secret and cannot cross the pipeline's tf_outputs channel).
 #    The credit cards placeholders are local values: Minikube has no
 #    DynamoDB table nor SQS queue, the table name is a placeholder and
-#    the empty queue URL makes the app skip the publish and log it.
+#    the composed queue URL is emptied out so the app skips the publish
+#    and logs it. The lab-aws-credentials secret of the manifest is
+#    rendered with LOCAL_PLACEHOLDER values so the pod can start (the
+#    secret must exist for the env wiring); Minikube has no DynamoDB
+#    endpoint, so the placeholder credentials are never used.
 # ------------------------------------------------------------
 
 echo "==> [7/7] Deploying the k8s_entrega3/ workloads"
@@ -217,16 +254,25 @@ if [ -z "${SECRET_TOKEN:-}" ]; then
     get_dev_env_vars "$SCRIPT_DIR" 
 fi
 
+# Base64 form of the token for the K8s Secret `data:` field (the
+# manifest placeholder is ${SECRET_TOKEN_B64}).
+export SECRET_TOKEN_B64="$(printf '%s' "${SECRET_TOKEN}" | base64 | tr -d '\n')"
+
 envsubst < "k8s_entrega3/k8s-true-native-deployment.yml" | kubectl apply -f -
 
 ACCOUNT_ID="${ACCOUNT_ID}" AWS_REGION="${AWS_REGION}" \
-CREDIT_CARDS_TABLE_NAME="credit_cards" CARD_VERIFICATION_QUEUE_URL="" \
-envsubst '${ACCOUNT_ID} ${AWS_REGION} ${CREDIT_CARDS_TABLE_NAME} ${CARD_VERIFICATION_QUEUE_URL}' \
-  < "k8s_entrega3/k8s-credit-cards-deployment.yml" | kubectl apply -f -
+CREDIT_CARDS_TABLE_NAME="credit_cards" CARD_VERIFICATION_QUEUE_NAME="" \
+AWS_ACCESS_KEY_ID="LOCAL_PLACEHOLDER" \
+AWS_SECRET_ACCESS_KEY="LOCAL_PLACEHOLDER" \
+AWS_SESSION_TOKEN="LOCAL_PLACEHOLDER" \
+envsubst '${ACCOUNT_ID} ${AWS_REGION} ${CREDIT_CARDS_TABLE_NAME} ${CARD_VERIFICATION_QUEUE_NAME} ${AWS_ACCESS_KEY_ID} ${AWS_SECRET_ACCESS_KEY} ${AWS_SESSION_TOKEN}' \
+  < "k8s_entrega3/k8s-credit-cards-deployment.yml" \
+  | sed 's|value: "https://sqs[^"]*"|value: ""|' \
+  | kubectl apply -f -
 
 kubectl apply -f "k8s_entrega2/zz-ingress.yml"
 
-for d in truenative credit-cards-app; do
+for d in truenative credit-cards-app users-app user-verification-callback; do
   kubectl wait --for=condition=available deployment "$d" --timeout=300s
 done
 

@@ -1,10 +1,14 @@
-from sqlalchemy import create_engine, text
+import logging
+
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from adapters.database.models import Base
 from config import Settings
+
+logger = logging.getLogger(__name__)
 
 _engine: Engine | None = None
 _session_factory: sessionmaker[Session] | None = None
@@ -51,10 +55,58 @@ def build_session_factory(database_url: str | None = None) -> sessionmaker[Sessi
     return _session_factory
 
 
+def ensure_schema_columns(engine: Engine | None = None) -> None:
+    """Add the nullable columns that a persistent database is missing.
+
+    ``create_all`` builds missing tables but does not evolve the ones that
+    already exist, so a database that survived an earlier deployment of the
+    application (for example a persistent RDS instance) keeps its old column
+    set and every ORM query fails on the first missing column. This routine
+    inspects every mapped table and adds the nullable columns the model
+    expects. A missing primary key or non nullable column cannot be added
+    safely to a table that already holds rows, so the routine raises for
+    them instead of guessing.
+    """
+    active_engine = engine or get_engine()
+    inspector = inspect(active_engine)
+    dialect = active_engine.dialect
+    existing_tables = set(inspector.get_table_names())
+    for table in Base.metadata.sorted_tables:
+        if table.name not in existing_tables:
+            continue  # create_all already built it with the full schema
+        database_columns = {
+            column["name"] for column in inspector.get_columns(table.name)
+        }
+        for column in table.columns:
+            if column.name in database_columns:
+                continue
+            if column.primary_key or not column.nullable:
+                raise RuntimeError(
+                    f"Missing non optional column {column.name} of table "
+                    f"{table.name}; it cannot be added to an existing table "
+                    "without a data migration"
+                )
+            type_sql = column.type.compile(dialect=dialect)
+            with active_engine.begin() as connection:
+                connection.execute(
+                    text(
+                        f'ALTER TABLE "{table.name}" '
+                        f'ADD COLUMN "{column.name}" {type_sql} NULL'
+                    )
+                )
+            logger.info(
+                "Added the missing column %s.%s (%s) to the existing database",
+                table.name,
+                column.name,
+                type_sql,
+            )
+
+
 def init_db(engine: Engine | None = None) -> None:
-    """Create database tables if they do not exist."""
+    """Create database tables if they do not exist and evolve missing columns."""
     active_engine = engine or get_engine()
     Base.metadata.create_all(bind=active_engine)
+    ensure_schema_columns(active_engine)
 
 
 def check_connection(engine: Engine | None = None) -> bool:

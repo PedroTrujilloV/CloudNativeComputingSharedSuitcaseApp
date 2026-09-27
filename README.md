@@ -335,7 +335,13 @@ coverage of 70% enforced with `--cov-fail-under=70`). The unit testing pipeline
 pull request to `main` and validates the coverage of each application job,
 including `card_worker`. No
 language other than Python and no testing framework other than pytest are used
-in this project, so no additional toolchain section is required.
+in this project, so no additional toolchain section is required. Manual and
+integration verification is documented per requirement in the
+[Development View](./docs/development-view.md); in particular,
+[Manual verification of RF-006](./docs/development-view.md#manual-verification-of-rf-006)
+documents the runs of the graded collection `scripts/entrega3/entrega3.json`
+on local Minikube and on the AWS dev environment, with the expected result
+of each run.
 
 ## Prerequisites
 

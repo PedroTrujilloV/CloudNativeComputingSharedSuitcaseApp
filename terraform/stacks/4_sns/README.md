@@ -95,9 +95,17 @@ evaluator pipeline.
 
 | Output | Description |
 |---|---|
-| `card_verification_topic_arn` | ARN of the RF-006 card verification topic. |
-| `user_verification_topic_arn` | ARN of the RF-007 identity verification topic. |
-| `email_endpoint` | The subscription address, read from the secret (sensitive). |
+| `card_verification_topic_name` | Name of the RF-006 card verification topic (the `6_lambda` stack resolves its ARN from this name). |
+| `user_verification_topic_name` | Name of the RF-007 identity verification topic; the callback manifest reconstructs the full ARN from it. |
+
+The topic ARNs are deliberately not exposed: they embed the AWS account
+id (the value of the `ACCOUNT_ID` environment secret), and the deploy
+pipeline merges every stack output into a single JSON that GitHub Actions
+silently discards when it contains a secret value. Likewise
+`email_endpoint` is not exposed (it equals the `EMAIL_TO_NOTIFY`
+environment secret); the subscriptions still use that value internally
+(`locals.tf`, never an output). The ARNs remain available via
+`aws sns list-topics`.
 
 ## Deployment Order
 
@@ -130,9 +138,11 @@ aws sns list-subscriptions --region us-east-1
 * The producers of the messages (the `card_worker` function and the
   `user_verification_callback` service) receive the topic ARNs from the
   pipeline: the pipeline exports every stack output as an uppercased
-  environment variable, so `card_verification_topic_arn` becomes
-  `$CARD_VERIFICATION_TOPIC_ARN` and `user_verification_topic_arn`
-  becomes `$USER_VERIFICATION_TOPIC_ARN` for the envsubst step that
-  applies the Kubernetes manifests.
+  environment variable, so `user_verification_topic_name` becomes
+  `$USER_VERIFICATION_TOPIC_NAME` for the envsubst step; the callback
+  manifest reconstructs the full ARN from the name plus `$AWS_REGION` and
+  `$ACCOUNT_ID` (both provided by the pipeline itself). The card worker
+  resolves its topic ARN from the name with a data source in the
+  `6_lambda` stack.
 * No email address, credential, or secret value is stored in this
   repository or in the Terraform state.

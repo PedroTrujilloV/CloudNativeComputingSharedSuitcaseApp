@@ -8,22 +8,45 @@
 #
 # ENVIRONMENT NOTES:
 #
-#   DYNAMODB_TABLE_NAME and CARD_VERIFICATION_QUEUE_URL come from the
-#   Terraform outputs of the 3_dynamodb and 5_sqs stacks (the deploy
-#   pipeline exports the outputs as uppercase env vars and envsubst fills
-#   these values at apply time).
+#   DYNAMODB_TABLE_NAME comes from the credit_cards_table_name output of
+#   the 3_dynamodb stack, and the full SQS URL is reconstructed at apply
+#   time by envsubst from the safe card_verification_queue_name output of
+#   the 5_sqs stack plus $AWS_REGION and $ACCOUNT_ID (the full URL embeds
+#   the AWS account id, so it cannot be a terraform output).
 #
 #   TRUENATIVE_SECRET_TOKEN comes from the truenative-secret defined in
 #   k8s-true-native-deployment.yml (the same secret the TrueNative pod
 #   uses); the token itself never appears in this repository.
 #
-#   AWS credentials for the DynamoDB and SQS clients are resolved by the
-#   standard boto3 chain (the node role through the instance metadata
-#   service). The worker side of the flow runs under its own least
-#   privilege Lambda execution role (6_lambda stack).
+#   The lab-aws-credentials secret (declared at the top of this file)
+#   holds the AWS session that the pod uses for its DynamoDB and SQS
+#   clients. The EKS node role of the lab account carries no DynamoDB
+#   policy and the account forbids creating IAM roles or enabling IRSA
+#   (the eks module ships enable_irsa = false; the 6_lambda stack
+#   documents the same constraint for the card worker), so the pod
+#   authenticates with the active lab session of whoever deploys it:
+#   the pipeline deploy-k8s step and
+#   scripts/terraform_scripts/deploy-k8s-to-eks.sh fill the stringData
+#   placeholders from the AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY and
+#   AWS_SESSION_TOKEN environment variables at apply time, and
+#   scripts/local-deploy.sh renders local placeholders (Minikube has no
+#   DynamoDB endpoint, so the values are never used there). No
+#   credential value ever appears in this repository. The worker side
+#   of the flow runs under the pre-provisioned LabRole of the 6_lambda
+#   stack.
 #
 # Usage (from repository root):
 #   kubectl apply -f k8s_entrega3/k8s-credit-cards-deployment.yml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: lab-aws-credentials
+type: Opaque
+stringData:
+  AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID}"
+  AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY}"
+  AWS_SESSION_TOKEN: "${AWS_SESSION_TOKEN}"
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -45,7 +68,7 @@ spec:
           image: ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/credit-cards-app:v0.0.0
           ports:
             - containerPort: 8000
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           env:
             - name: APP_NAME
               value: credit_cards_app
@@ -65,7 +88,34 @@ spec:
                   name: truenative-secret
                   key: SECRET_TOKEN
             - name: CARD_VERIFICATION_QUEUE_URL
-              value: "${CARD_VERIFICATION_QUEUE_URL}"
+              # Reconstructed here instead of coming from the 5_sqs stack
+              # output: the full URL embeds the AWS account id, which is the
+              # value of the ACCOUNT_ID environment secret, so exposing it as
+              # a terraform output would poison the pipeline's combined
+              # tf_outputs (GitHub Actions discards job outputs containing a
+              # secret value). The safe queue name comes from the
+              # card_verification_queue_name output of the 5_sqs stack;
+              # AWS_REGION and ACCOUNT_ID are provided by the pipeline
+              # itself.
+              value: "https://sqs.${AWS_REGION}.amazonaws.com/${ACCOUNT_ID}/${CARD_VERIFICATION_QUEUE_NAME}"
+            # The lab session that the deployer's environment carries at
+            # apply time (see the header notes): the secret is filled by
+            # envsubst, so no value below is ever a credential.
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: lab-aws-credentials
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: lab-aws-credentials
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_SESSION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: lab-aws-credentials
+                  key: AWS_SESSION_TOKEN
 ---
 apiVersion: v1
 kind: Service

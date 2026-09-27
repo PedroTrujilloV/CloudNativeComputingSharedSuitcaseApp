@@ -65,10 +65,13 @@ load balancer that only exists once the k8s manifests are deployed.
 
 | Output | Description |
 |---|---|
-| `card_verification_queue_url` | URL of the queue; exposed to the k8s manifest step as `CARD_VERIFICATION_QUEUE_URL`. |
-| `card_verification_queue_arn` | ARN of the queue. |
-| `card_dead_letter_queue_url` | URL of the dead letter queue (operator inspection). |
-| `card_dead_letter_queue_arn` | ARN of the dead letter queue. |
+| `card_verification_queue_name` | Name of the queue; exposed to the k8s manifest step as `CARD_VERIFICATION_QUEUE_NAME`, from which the manifest reconstructs the full URL. |
+
+The queue URL/ARN are deliberately not exposed: they embed the AWS
+account id (the value of the `ACCOUNT_ID` environment secret), and the
+deploy pipeline merges every stack output into a single JSON that GitHub
+Actions silently discards when it contains a secret value. The URLs
+remain available via `aws sqs list-queues`.
 
 ## Local plan prerequisite
 

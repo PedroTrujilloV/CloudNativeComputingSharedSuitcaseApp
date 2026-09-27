@@ -9,7 +9,7 @@
 # /var/task and the handler is declared with the CMD (module.function),
 # which is how the Lambda runtime resolves the entry point of an image
 # based function.
-FROM public.ecr.aws/sam/python3.11-base
+FROM public.ecr.aws/lambda/python:3.11
 
 ENV POETRY_VERSION=2.1.1 \
     POETRY_VIRTUALENVS_CREATE=false \

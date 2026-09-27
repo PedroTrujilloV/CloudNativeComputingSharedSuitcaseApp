@@ -44,7 +44,7 @@ graph TD
 ```
 
 - The **network stack** provides `private_subnet_ids` and RDS security group (via remote state).
-- The **compute stack** reads `rds_address`, `rds_port`, and `secrets_manager_secret_arn` (via remote state) to inject into k8s manifests as environment variables or via AWS Secrets Store CSI Driver.
+- The **deploy pipeline** renders the `rds_address` output into the k8s app secrets via envsubst (the port and the database name are fixed values hardcoded in `k8s_entrega2/00-secrets.yml`, because their values equal the `DB_PORT`/`DB_NAME` environment secrets and cannot pass through the pipeline's combined `tf_outputs`); the `secrets_manager_secret_name` output is consumed by the local AWS deploy script (`scripts/terraform_scripts/deploy-k8s-to-eks.sh`).
 
 ## Variables
 
@@ -66,13 +66,20 @@ graph TD
 
 | Output | Type | Description | Consumed By |
 |---|---|---|---|
-| `rds_address` | `string` | RDS endpoint (for example, `shared-suitcase-postgres.xxxxxx.us-east-1.rds.amazonaws.com`) | compute stack → k8s manifests |
-| `rds_port` | `number` | PostgreSQL port (5432) | compute stack / documentation |
-| `rds_engine` | `string` | DB engine type (for example, `postgres`) | compute stack / documentation |
-| `rds_db_name` | `string` | Name of the RDS database | compute stack / documentation |
-| `secrets_manager_secret_arn` | `string` | ARN of the AWS Secrets Manager secret | compute stack → Pod Identity binding |
+| `rds_address` | `string` | RDS endpoint (for example, `shared-suitcase-postgres.xxxxxx.us-east-1.rds.amazonaws.com`) | k8s app secrets (envsubst, `k8s_entrega2/00-secrets.yml`) |
+| `rds_engine` | `string` | DB engine type (for example, `postgres`) | documentation |
+| `secrets_manager_secret_name` | `string` | Name of the AWS Secrets Manager secret (usable as `secret-id` for the aws cli) | local AWS deploy script |
 | `create_app_tables` | `bool` | Whether app tables were created in the shared DB | documentation |
 | `app_table_names` | `list(string)` | Names of app tables created in the shared DB | documentation |
+
+`rds_port`, `rds_db_name` and the secret ARN are deliberately not
+exposed: the port (`5432`) and the database name (`shared_db`) equal the
+`DB_PORT` and `DB_NAME` environment secrets, and the ARN embeds the AWS
+account id — the deploy pipeline merges every stack output into a single
+JSON that GitHub Actions silently discards when it contains the value of
+any environment secret (the whole `tf_outputs` job output was lost this
+way). The port and the name are hardcoded in the k8s manifest instead,
+and the ARN remains available via `aws secretsmanager describe-secret`.
 
 ## Deployment Order
 

@@ -354,9 +354,13 @@ and `updatedAt`), so the callback builds the email from the exact data
 the status update stored, and the status stated in the email is the
 status persisted in the platform. Absent profile fields are shown as
 `Not provided`. The topic ARN reaches the workload through the
-`${USER_VERIFICATION_TOPIC_ARN}` envsubst placeholder in
-`k8s_entrega2/28-user-verification-callback.yml` (the deploy pipeline
-exports the `user_verification_topic_arn` output of the `4_sns` stack),
+`${USER_VERIFICATION_TOPIC_ARN}` placeholder in
+`k8s_entrega2/28-user-verification-callback.yml`, which the deploy
+pipeline envsubst fills by reconstructing the full ARN from the safe
+`user_verification_topic_name` output of the `4_sns` stack plus
+`$AWS_REGION` and `$ACCOUNT_ID` (the full ARN embeds the AWS account id,
+so it cannot be a terraform output of the pipeline — see the `tf_outputs`
+scrub of TASK-035),
 and the publish uses the cluster node role credentials through the
 default boto3 chain. When the topic ARN is empty (local runs without the
 AWS stack) the composed email is logged and the delivery is skipped with
@@ -865,10 +869,13 @@ the same listing endpoint observed in step 7; the DynamoDB read of step 7
 remains the ground truth cross check.
 
 **Local Minikube, partial flow.** `bash scripts/local-deploy.sh` builds the
-`credit-cards-app` image, deploys the `k8s_entrega3/` workloads
-(TrueNative plus the credit cards Deployment and Service) with local
-placeholder values (the table name is a placeholder and the empty queue URL
-makes the app skip the publish and log it), and then
+`credit-cards-app` and the `user-verification-callback` images, deploys the
+`k8s_entrega3/` workloads (TrueNative plus the credit cards Deployment and
+Service) with local placeholder values (the table name is a placeholder and
+the empty queue URL makes the app skip the publish and log it), deploys the
+`user-verification-callback` Deployment and Service from `k8s_entrega2/`
+(the TrueNative webhook receiver that completes the RF-007 flow in the
+cluster), and then
 `bash scripts/local-verify.sh` asserts what the cluster can answer: the
 `credit-cards-app` pod and the `credit-cards-service` ClusterIP service are
 running, the ingress rule routes `GET /credit-cards/ping` to the app
@@ -881,3 +888,82 @@ table (the listing, the count, and the reset) are covered by the AWS
 steps above. The `201` creation, the asynchronous terminal state, and the
 result email notification are not verifiable locally: Minikube has no
 DynamoDB table, no SQS queue, and no Lambda function.
+
+**Graded collection, both environments.** The same Postman collection the
+grader executes, `scripts/entrega3/entrega3.json`, is the manual
+verification tool of this section. It declares two environment variables:
+`BASE_PATH` (the base URL without a trailing slash) and `EMAIL` (the owner
+address that TrueNative and the email notifications use; on AWS it is the
+`EMAIL_TO_NOTIFY` key of the `secrets-pipeline-native-map` secret, and
+locally it is the `EMAIL_TO_NOTIFY` line of the out of repo
+`truenative_secrets/dev.env` file). The collection has three folders,
+executed in order: "Reset" (empties the users with `POST /users/reset` and
+the cards with `POST /credit-cards/reset`, and carries no test assertions),
+"RF-007 Verificar identidad" (the TrueNative identity flow, which completes
+only when the in cluster `user-verification-callback` service answers the
+webhook), and "RF-006 Tarjetas" (the synchronous and asynchronous card flow
+of the steps above, with its own user and token setup at the start). The
+requests that assert a terminal state (a verification token in the
+`NO_VERIFICADO` or the `VERIFICADO` state, and the card statuses after the
+TrueNative answer) wait ten seconds before executing, through a timer in
+their pre request script, so the platform and the worker finish their
+polling first.
+
+**Local Minikube run.** After `bash scripts/local-deploy.sh` (the callback
+service it deploys is what lets the RF-007 folder complete) and a running
+`minikube tunnel` in a separate shell (the ingress answers on
+`http://localhost:80`):
+
+```bash
+EMAIL_TO_NOTIFY="$(grep -E '^EMAIL_TO_NOTIFY=' ../truenative_secrets/dev.env | cut -d= -f2-)"
+newman run scripts/entrega3/entrega3.json \
+  --env-var BASE_PATH="http://localhost:80" \
+  --env-var EMAIL="${EMAIL_TO_NOTIFY}" \
+  --reporters cli,htmlextra
+```
+
+The expected result is partial by design: the whole "RF-007 Verificar
+identidad" folder is green, the "Reset" folder runs without failed tests,
+and "RF-006 Tarjetas" is green except exactly seven requests: "Crear
+tarjeta," "Verificar tarjeta en estado POR_VERIFICAR" (the single card
+scenario), "Verificar tarjeta en estado RECHAZADA despues de respuesta
+Truenative," "Crear tarjeta que ya existe," "Crear otra tarjeta,"
+"Verificar tarjeta en estado POR_VERIFICAR" (the two card scenario), and
+"Verificar tarjeta en estado APROBADA despues de respuesta Truenative."
+Every one of them fails for the same reason: the card creation with a valid
+token writes to the DynamoDB table, Minikube has no such table, and the
+asynchronous flow needs the SQS queue and the Lambda worker, so the `201`
+that the assertions expect never arrives and the downstream checks (the
+terminal status, the `409` duplicate, and the second card) can never be
+reached.
+
+**AWS dev run.** After the full dev deployment (the `config.yaml`
+`tf_stacks`, the k8s manifests, and the `post_k8s_stacks`, covered by the
+helper sequence in `scripts/terraform_scripts/`) and the ingress load
+balancer host resolved as in step 1 of the AWS flow above:
+
+```bash
+EMAIL_TO_NOTIFY="$(aws secretsmanager get-secret-value \
+  --secret-id secrets-pipeline-native-map \
+  --query 'SecretString' --output text | jq -r .EMAIL_TO_NOTIFY)"
+newman run scripts/entrega3/entrega3.json \
+  --env-var BASE_PATH="https://${BASE}" \
+  --env-var EMAIL="${EMAIL_TO_NOTIFY}" \
+  --insecure
+```
+
+The expected result is zero failed tests across the three folders: the
+asynchronous flow completes because the table, the queue, and the worker
+exist, and the RF-007 folder completes through the callback service
+deployed by the same k8s step. The "Reset" folder at the start of the run
+clears the state left by the previous run; to finish a verification with a
+clean environment, rerun the same command with the added flag
+`--folder "Reset"`. If a terminal state check loses its race with the
+worker polling window, rerun the command with the added flag `--delay 6000`
+between requests.
+
+The newman reports (the htmlextra HTML and the JSON export) contain the
+`EMAIL` value in the request bodies, so they are never committed to the
+repository. They are archived out of the repository and attached to the
+pull request as evidence; this section carries the commands and the
+expected results, which is the stable part.

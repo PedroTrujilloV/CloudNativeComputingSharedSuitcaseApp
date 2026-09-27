@@ -1,0 +1,92 @@
+name: Entrega 3 - Evaluador Implementación
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        required: true
+        description: 'Select the target environment'
+        options:
+          - student1
+          - student2
+          - student3
+          - student4
+          - tutor
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+        description: 'Select the target environment'
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        required: true
+      AWS_SESSION_TOKEN:
+        required: true
+      EMAIL_TO_NOTIFY:
+        description: 'Correo al que deben llegar las notificaciones de esta entrega'
+        required: true
+jobs:
+  evaluate:
+    environment: ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required secrets are set
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+          EMAIL_TO_NOTIFY: ${{ secrets.EMAIL_TO_NOTIFY }}
+        run: |
+          required_secrets=(AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN EMAIL_TO_NOTIFY)
+
+          missing_secrets=()
+          for var in "${required_secrets[@]}"; do
+            if [ -z "${!var}" ]; then
+              missing_secrets+=("$var")
+            fi
+          done
+
+          if [ ${#missing_secrets[@]} -gt 0 ]; then
+            echo "❌ Faltan los siguientes secrets en el repo (Settings → Secrets and variables → Actions → Secrets):"
+            for var in "${missing_secrets[@]}"; do
+              echo "   - $var"
+            done
+            exit 1
+          fi
+
+          echo "✅ Todos los secrets requeridos están configurados."
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v1
+        with:
+          node-version: 18
+          registry-url: https://registry.npmjs.org/
+      - name: Create evaluator folder
+        run: mkdir -p .evaluator
+      - name: Download validate scripts
+        run: curl -sSL -o .evaluator/entrega3.json https://raw.githubusercontent.com/MISW-4301-Desarrollo-Apps-en-la-Nube/recursos-evaluador/main/entrega3/entrega3.json
+      - name: Checkout evaluator resources
+        uses: actions/checkout@v4
+        with:
+          repository: MISW-4301-Desarrollo-Apps-en-la-Nube/recursos-evaluador
+          ref: main
+          path: .evaluator-resources
+      - name: Connect to EKS cluster
+        uses: ./.evaluator-resources/.github/actions/connect-eks-cluster
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+      - name: Test entrega 3 - Reset
+        run: newman run ".evaluator/entrega3.json" --env-var BASE_PATH=$BASE_PATH --verbose --folder "Reset" --insecure
+      - name: Test entrega 3 - RF-007 Verificar identidad
+        run: newman run ".evaluator/entrega3.json" --env-var BASE_PATH=$BASE_PATH --env-var EMAIL=${{ secrets.EMAIL_TO_NOTIFY }} --verbose --folder "RF-007 Verificar identidad" --insecure
+        if: always()
+      - name: Test entrega 3 works - RF-006 Tarjetas
+        run: newman run ".evaluator/entrega3.json" --env-var BASE_PATH=$BASE_PATH --env-var EMAIL=${{ secrets.EMAIL_TO_NOTIFY }} --verbose --folder "RF-006 Tarjetas" --insecure
+        if: always()

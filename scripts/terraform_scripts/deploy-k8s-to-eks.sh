@@ -10,6 +10,12 @@ cd "$(dirname "$0")/../.."
 #    TF_STACK_DIR=terraform/stacks/eks ./scripts/terraform_scripts/deploy-k8s-to-eks.sh
 # ------------------------------------------------------------
 REGION="${REGION:-us-east-1}"
+# The Terraform environment to deploy (dev or student1). The cluster name
+# and region come from its eks tfvars, and the stack outputs read below
+# (1_database, 3_dynamodb, 4_sns, 5_sqs) must have been planned and
+# applied against that same environment first (the helper scripts
+# re-init each stack dir against the environment of the last run).
+TF_ENV="${TF_ENV:-student1}"
 TF_STACK_DIR="${TF_STACK_DIR:-terraform/stacks/eks}"   # <-- CONFIRM: adjust to whichever stack provisions the EKS cluster
 
 echo "==> [0/6] Resolving account, cluster name and region"
@@ -20,9 +26,10 @@ ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
 # CLUSTER_NAME="$(terraform -chdir="${TF_STACK_DIR}" output -raw cluster_name)" # Didn't work for  now
 # REGION="$(terraform -chdir="${TF_STACK_DIR}" output -raw region 2>/dev/null || echo "${REGION}")"
 
-CLUSTER_NAME="$(grep -E '^cluster_name' terraform/environments/student1/eks/terraform.tfvars | cut -d'"' -f2)"
-REGION="$(grep -E '^region' terraform/environments/student1/eks/terraform.tfvars | cut -d'"' -f2)"
+CLUSTER_NAME="$(grep -E '^cluster_name' "terraform/environments/${TF_ENV}/eks/terraform.tfvars" | cut -d'"' -f2)"
+REGION="$(grep -E '^region' "terraform/environments/${TF_ENV}/eks/terraform.tfvars" | cut -d'"' -f2)"
 
+echo "    environment: ${TF_ENV}"
 echo "    account: ${ACCOUNT_ID}"
 echo "    cluster: ${CLUSTER_NAME}"
 echo "    region:  ${REGION}"
@@ -105,8 +112,11 @@ build_app rf003_create_post_app rf003-create-post-app:v0.0.0
 build_app rf004_create_offer_app rf004-create-offer-app:v0.0.0
 build_app rf005_query_post_app rf005-query-post-app:v0.0.0
 # Entrega 3 apps (the card_worker image is NOT deployed on the cluster:
-# the 6_lambda stack consumes it from ECR as the Lambda function image)
+# the 6_lambda stack consumes it from ECR as the Lambda function image;
+# the user-verification-callback image is the RF-007 webhook receiver)
 build_app credit_cards_app credit-cards-app:v0.0.0
+build_app user_verification_callback user-verification-callback:v0.0.0
+build_app card_worker card-worker:v0.0.0
 
 # ------------------------------------------------------------
 # 2.b Replace image placeholders in Kubernetes manifests
@@ -118,23 +128,24 @@ cp -R k8s_entrega2/. "${DEPLOY_DIR}/"
 
 replace_image_placeholder() {
   local manifest="$1"
-  local image="$2"
+  local image="$2"          # image, e.g. "users-app:v0.0.0" (logged only)
 
   if [ ! -f "${manifest}" ]; then
     echo "ERROR: ${manifest} not found" >&2
     exit 1
   fi
 
-  local image_uri="${ECR_REGISTRY}/${image}"
+  echo "    updating ${manifest} (${image})"
+  echo "      \${ACCOUNT_ID}.dkr.ecr.\${AWS_REGION} -> ${ECR_REGISTRY}"
 
-  echo "    updating ${manifest}"
-  echo "      <image_uri>:<tag> -> ${image_uri}"
-
-  # Replace the literal placeholder with the ECR image URI.
-  sed -i '' "s|<image_uri>:<tag>|${image_uri}|g" "${manifest}"
+  # The manifests carry the placeholders
+  # ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/<image>:<tag>;
+  # replace them with the real account and region of this deployment.
+  sed -i '' "s|\${ACCOUNT_ID}|${ACCOUNT_ID}|g" "${manifest}"
+  sed -i '' "s|\${AWS_REGION}|${REGION}|g" "${manifest}"
 
   # Make sure no placeholder remains.
-  if grep -q '<image_uri>:<tag>' "${manifest}"; then
+  if grep -q '${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}' "${manifest}"; then
     echo "ERROR: Image placeholder was not fully replaced in ${manifest}" >&2
     exit 1
   fi
@@ -150,6 +161,7 @@ replace_image_placeholder "${DEPLOY_DIR}/24-scores-app.yml" "scores-app:v0.0.0"
 replace_image_placeholder "${DEPLOY_DIR}/25-rf003-create-post-app.yml" "rf003-create-post-app:v0.0.0"
 replace_image_placeholder "${DEPLOY_DIR}/26-rf004-create-offer-app.yml" "rf004-create-offer-app:v0.0.0"
 replace_image_placeholder "${DEPLOY_DIR}/27-rf005-query-post-app.yml" "rf005-query-post-app:v0.0.0"
+replace_image_placeholder "${DEPLOY_DIR}/28-user-verification-callback.yml" "user-verification-callback:v0.0.0"
 
 
 
@@ -276,10 +288,10 @@ fi
 #     render them into the K8s Secrets applied in step 5.
 # ------------------------------------------------------------
 echo "==> Fetching DB credentials from Secrets Manager"
-SECRET_ARN="$(terraform -chdir=terraform/stacks/1_database output -raw secrets_manager_secret_arn)"
+SECRET_NAME="$(terraform -chdir=terraform/stacks/1_database output -raw secrets_manager_secret_name)"
 
 DB_SECRET_JSON="$(aws secretsmanager get-secret-value \
-  --secret-id "${SECRET_ARN}" \
+  --secret-id "${SECRET_NAME}" \
   --region "${REGION}" \
   --query SecretString --output text)"
 
@@ -301,7 +313,11 @@ fi
 #     environment secret (except AWS_* and GITHUB_TOKEN) into this
 #     JSON map before running terraform. The 4_sns stack reads
 #     EMAIL_TO_NOTIFY from it, and the TrueNative manifest needs
-#     SECRET_TOKEN for its K8s Secret.
+#     SECRET_TOKEN for its K8s Secret. The K8s Secret uses a
+#     `data:` field, so the manifest placeholder is the base64
+#     encoding of the token (SECRET_TOKEN_B64), computed here from
+#     the map value — exactly the same base64 channel the pipeline
+#     uses on AWS through the safe eks output "secret_token_b64".
 # ------------------------------------------------------------
 echo "==> Fetching pipeline secret map (EMAIL_TO_NOTIFY, SECRET_TOKEN)"
 PIPELINE_SECRET_JSON="$(aws secretsmanager get-secret-value \
@@ -311,6 +327,7 @@ PIPELINE_SECRET_JSON="$(aws secretsmanager get-secret-value \
 
 export EMAIL_TO_NOTIFY="$(echo "${PIPELINE_SECRET_JSON}" | jq -r '.EMAIL_TO_NOTIFY')"
 export SECRET_TOKEN="$(echo "${PIPELINE_SECRET_JSON}" | jq -r '.SECRET_TOKEN')"
+export SECRET_TOKEN_B64="$(printf '%s' "${SECRET_TOKEN}" | base64 | tr -d '\n')"
 
 if [ -z "${EMAIL_TO_NOTIFY}" ] || [ "${EMAIL_TO_NOTIFY}" == "null" ]; then
   echo "ERROR: EMAIL_TO_NOTIFY came back empty: make sure the GitHub environment" >&2
@@ -329,39 +346,111 @@ echo "    rendered ${DEPLOY_DIR}/00-secrets.yml with real DB credentials"
 
 # ------------------------------------------------------------
 # 4.8 Render the TrueNative manifest (k8s_entrega3/). It needs
-#     SECRET_TOKEN, which comes from the pipeline secret map
-#     (never hardcoded, same pattern as the local deploy script).
-#     It is applied BEFORE the Ingress, because the /native rule
+#     SECRET_TOKEN_B64 (the base64 encoding of the map's
+#     SECRET_TOKEN, computed above; never hardcoded). It is
+#     applied BEFORE the Ingress, because the /native rule
 #     routes to truenative-service.
 # ------------------------------------------------------------
 echo "==> Rendering TrueNative manifest (k8s_entrega3/)"
 envsubst < "k8s_entrega3/k8s-true-native-deployment.yml" > "${DEPLOY_DIR}/k8s-true-native-deployment.yml"
-echo "    rendered ${DEPLOY_DIR}/k8s-true-native-deployment.yml with SECRET_TOKEN"
+echo "    rendered ${DEPLOY_DIR}/k8s-true-native-deployment.yml with SECRET_TOKEN_B64"
 
 # ------------------------------------------------------------
 # 4.9 Render the credit cards manifest (k8s_entrega3/). The table
-#     name and the queue URL come from the 3_dynamodb and 5_sqs
+#     name and the queue name come from the 3_dynamodb and 5_sqs
 #     stack outputs (the stacks must be applied before this step,
-#     which the pipeline order guarantees); the token itself comes
-#     from the truenative-secret created by the TrueNative manifest,
-#     so this manifest only references the secret by name.
+#     which the pipeline order guarantees); the full queue URL is
+#     reconstructed inside the manifest from the safe queue name
+#     plus $ACCOUNT_ID and $AWS_REGION (the full URL embeds the
+#     account id, so it cannot be a terraform output). The token
+#     itself comes from the truenative-secret created by the
+#     TrueNative manifest, so this manifest only references the
+#     secret by name.
+#
+#     The lab-aws-credentials secret of the manifest is filled from
+#     the active AWS session of this deployer (the pipeline export
+#     or the default profile of ~/.aws/credentials): the EKS node
+#     role of the lab account carries no DynamoDB policy and the
+#     account forbids creating IAM roles or enabling IRSA, so the
+#     credit cards pod authenticates with the session that deploys
+#     it. The values are validated against the table before the
+#     render (fail fast with a clear message) and never printed.
 # ------------------------------------------------------------
 echo "==> Rendering credit cards manifest (k8s_entrega3/)"
 CREDIT_CARDS_TABLE_NAME="$(terraform -chdir=terraform/stacks/3_dynamodb output -raw credit_cards_table_name)"
-CARD_VERIFICATION_QUEUE_URL="$(terraform -chdir=terraform/stacks/5_sqs output -raw card_verification_queue_url)"
+CARD_VERIFICATION_QUEUE_NAME="$(terraform -chdir=terraform/stacks/5_sqs output -raw card_verification_queue_name)"
 
-if [ -z "${CREDIT_CARDS_TABLE_NAME}" ] || [ -z "${CARD_VERIFICATION_QUEUE_URL}" ]; then
+if [ -z "${CREDIT_CARDS_TABLE_NAME}" ] || [ -z "${CARD_VERIFICATION_QUEUE_NAME}" ]; then
   echo "ERROR: the 3_dynamodb or 5_sqs stack output came back empty." >&2
   echo "       Apply both stacks (config.yaml tf_stacks order) before this step." >&2
   exit 1
 fi
 
+# Resolve the active session credentials (environment first, then the
+# default profile of the AWS CLI credentials file) without printing them.
+if [ -z "${AWS_ACCESS_KEY_ID:-}" ] || [ -z "${AWS_SECRET_ACCESS_KEY:-}" ] || [ -z "${AWS_SESSION_TOKEN:-}" ]; then
+  CRED_FILE="${HOME}/.aws/credentials"
+  if [ -f "${CRED_FILE}" ]; then
+    echo "    resolving the AWS session from ${CRED_FILE} (default profile)"
+    AWS_ACCESS_KEY_ID="$(awk -F'=' '/^aws_access_key_id/ {print $2; exit}' "${CRED_FILE}")"
+    AWS_SECRET_ACCESS_KEY="$(awk -F'=' '/^aws_secret_access_key/ {print $2; exit}' "${CRED_FILE}")"
+    AWS_SESSION_TOKEN="$(awk -F'=' '/^aws_session_token/ {print $2; exit}' "${CRED_FILE}")"
+  fi
+fi
+
+if [ -z "${AWS_ACCESS_KEY_ID:-}" ] || [ -z "${AWS_SECRET_ACCESS_KEY:-}" ] || [ -z "${AWS_SESSION_TOKEN:-}" ]; then
+  echo "ERROR: the active AWS session (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY," >&2
+  echo "       AWS_SESSION_TOKEN) is incomplete: the credit cards pod authenticates" >&2
+  echo "       with the session that deploys it, and the lab account has no node" >&2
+  echo "       role or IRSA path with DynamoDB access. Refresh the lab session and" >&2
+  echo "       re-run this script." >&2
+  exit 1
+fi
+
+if ! aws dynamodb describe-table --table-name "${CREDIT_CARDS_TABLE_NAME}" >/dev/null 2>&1; then
+  echo "ERROR: the active AWS session cannot describe the table ${CREDIT_CARDS_TABLE_NAME}." >&2
+  echo "       Refresh the lab session (the credentials are injected into the" >&2
+  echo "       lab-aws-credentials secret at apply time) and re-run this script." >&2
+  exit 1
+fi
+echo "    the active session can access the table ${CREDIT_CARDS_TABLE_NAME}"
+
+export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+
 ACCOUNT_ID="${ACCOUNT_ID}" AWS_REGION="${REGION}" \
 CREDIT_CARDS_TABLE_NAME="${CREDIT_CARDS_TABLE_NAME}" \
-CARD_VERIFICATION_QUEUE_URL="${CARD_VERIFICATION_QUEUE_URL}" \
-envsubst '${ACCOUNT_ID} ${AWS_REGION} ${CREDIT_CARDS_TABLE_NAME} ${CARD_VERIFICATION_QUEUE_URL}' \
+CARD_VERIFICATION_QUEUE_NAME="${CARD_VERIFICATION_QUEUE_NAME}" \
+AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}" \
+AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}" \
+AWS_SESSION_TOKEN="${AWS_SESSION_TOKEN}" \
+envsubst '${ACCOUNT_ID} ${AWS_REGION} ${CREDIT_CARDS_TABLE_NAME} ${CARD_VERIFICATION_QUEUE_NAME} ${AWS_ACCESS_KEY_ID} ${AWS_SECRET_ACCESS_KEY} ${AWS_SESSION_TOKEN}' \
   < "k8s_entrega3/k8s-credit-cards-deployment.yml" > "${DEPLOY_DIR}/k8s-credit-cards-deployment.yml"
-echo "    rendered ${DEPLOY_DIR}/k8s-credit-cards-deployment.yml (table=${CREDIT_CARDS_TABLE_NAME})"
+echo "    rendered ${DEPLOY_DIR}/k8s-credit-cards-deployment.yml (table=${CREDIT_CARDS_TABLE_NAME}, queue=${CARD_VERIFICATION_QUEUE_NAME})"
+
+# ------------------------------------------------------------
+# 4.10 Render the RF-007 callback manifest (k8s_entrega2/28). The
+#      full topic ARN is reconstructed inside the manifest from the
+#      safe user_verification_topic_name output of the 4_sns stack
+#      (the topic that carries the email subscription to
+#      EMAIL_TO_NOTIFY) plus $ACCOUNT_ID and $AWS_REGION (the ARN
+#      embeds the account id, so it cannot be a terraform output);
+#      the account/region parts were already replaced by the image
+#      placeholder pass above. The SECRET_TOKEN comes from the
+#      truenative-secret created by the TrueNative manifest, so the
+#      manifest only references it by name.
+# ------------------------------------------------------------
+echo "==> Rendering user verification callback manifest (k8s_entrega2/28)"
+USER_VERIFICATION_TOPIC_NAME="$(terraform -chdir=terraform/stacks/4_sns output -raw user_verification_topic_name)"
+
+if [ -z "${USER_VERIFICATION_TOPIC_NAME}" ] || [ "${USER_VERIFICATION_TOPIC_NAME}" = "None" ]; then
+  echo "ERROR: the 4_sns stack output user_verification_topic_name came back empty." >&2
+  echo "       Apply the 4_sns stack (config.yaml tf_stacks order) before this step." >&2
+  exit 1
+fi
+
+envsubst '${USER_VERIFICATION_TOPIC_NAME}' \
+  < "${DEPLOY_DIR}/28-user-verification-callback.yml" > "${DEPLOY_DIR}/28-user-verification-callback.rendered.yml"
+echo "    rendered ${DEPLOY_DIR}/28-user-verification-callback.rendered.yml (topic=${USER_VERIFICATION_TOPIC_NAME})"
 
 # ------------------------------------------------------------
 # 5. Apply the k8s_entrega2/ and k8s_entrega3/ manifests in
@@ -382,6 +471,7 @@ for f in \
   "${DEPLOY_DIR}/25-rf003-create-post-app.yml" \
   "${DEPLOY_DIR}/26-rf004-create-offer-app.yml" \
   "${DEPLOY_DIR}/27-rf005-query-post-app.yml" \
+  "${DEPLOY_DIR}/28-user-verification-callback.rendered.yml" \
   "${DEPLOY_DIR}/k8s-true-native-deployment.yml" \
   "${DEPLOY_DIR}/k8s-credit-cards-deployment.yml" \
   "${DEPLOY_DIR}/zz-ingress.yml"
@@ -396,7 +486,7 @@ done
 echo "==> [6/6] Waiting for Deployments to be ready"
 APPS=(users-app posts-app offers-app routes-app scores-app \
   rf003-create-post-app rf004-create-offer-app rf005-query-post-app \
-  truenative credit-cards-app)
+  user-verification-callback truenative credit-cards-app)
 
 for d in "${APPS[@]}"; do
   kubectl wait --for=condition=available deployment "$d" --timeout=300s
@@ -410,6 +500,7 @@ kubectl get endpoints \
   users-app-service posts-app-service offers-app-service routes-app-service \
   scores-app-service rf003-create-post-app-service \
   rf004-create-offer-app-service rf005-query-post-app-service \
+  user-verification-callback-service \
   credit-cards-service truenative-service
 
 echo ""

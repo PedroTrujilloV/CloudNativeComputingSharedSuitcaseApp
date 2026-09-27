@@ -5,6 +5,45 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ENVIRONMENTS_DIR="${ROOT_DIR}/terraform/environments"
 STACKS_DIR="${ROOT_DIR}/terraform/stacks"
 
+DESTROY_ALL=false
+if [ "${1:-}" = "--all" ]; then
+  DESTROY_ALL=true
+fi
+
+# Detect the AWS account of the current session so we never try to touch
+# state buckets owned by a different account.
+CURRENT_ACCOUNT=""
+if command -v aws >/dev/null 2>&1; then
+  CURRENT_ACCOUNT=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || true)
+fi
+if [ -z "${CURRENT_ACCOUNT}" ]; then
+  echo "⚠️  Could not detect the current AWS account."
+  echo "    Continuing, but please verify which environment you are destroying."
+else
+  echo "👤 Current AWS account: ${CURRENT_ACCOUNT}"
+fi
+
+# Extract an AWS account ID (arn:aws:iam::<ACCOUNT>:...) from a tfvars file.
+extract_account() {
+  local file="$1"
+  grep -o 'arn:aws:iam::[0-9]\{12\}:' "${file}" 2>/dev/null | head -1 | grep -o '[0-9]\{12\}' || true
+}
+
+# Account for an environment = first account found across any stack's tfvars.
+env_account() {
+  local env_dir="$1"
+  local f acct
+  for f in "${env_dir}"/*/*.tfvars; do
+    [ -f "${f}" ] || continue
+    acct=$(extract_account "${f}")
+    if [ -n "${acct}" ]; then
+      echo "${acct}"
+      return 0
+    fi
+  done
+  echo ""
+}
+
 echo "🔍 Discovering environment/stack combinations..."
 
 # Collect valid combos first, then reverse the order before destroying —
@@ -12,6 +51,14 @@ echo "🔍 Discovering environment/stack combinations..."
 COMBOS=()
 for ENV_PATH in "${ENVIRONMENTS_DIR}"/*/; do
   ENV_NAME=$(basename "${ENV_PATH}")
+  ENV_ACCT="$(env_account "${ENV_PATH%/}")"
+
+  if [ -n "${CURRENT_ACCOUNT}" ] && [ -n "${ENV_ACCT}" ] && [ "${ENV_ACCT}" != "${CURRENT_ACCOUNT}" ] && ! ${DESTROY_ALL}; then
+    echo "⏭️  Skipping environment '${ENV_NAME}': belongs to AWS account ${ENV_ACCT}, but current session is ${CURRENT_ACCOUNT}."
+    echo "    (Use --all to force destroying every environment.)"
+    continue
+  fi
+
   for STACK_PATH in "${ENV_PATH}"*/; do
     STACK_NAME=$(basename "${STACK_PATH}")
     BACKEND_TFVARS="${STACK_PATH}backend.tfvars"
@@ -27,9 +74,12 @@ for ENV_PATH in "${ENVIRONMENTS_DIR}"/*/; do
 done
 
 if [ ${#COMBOS[@]} -eq 0 ]; then
-  echo "❌ No valid environment/stack combinations found."
+  echo "❌ No environment/stack combinations to destroy for the current AWS session."
   exit 1
 fi
+
+PROCESSED=0
+DESTROYED=0
 
 # Reverse the array
 for ((i=${#COMBOS[@]}-1; i>=0; i--)); do
@@ -47,11 +97,18 @@ for ((i=${#COMBOS[@]}-1; i>=0; i--)); do
     BACKEND_ARGS=()
   fi
 
-  (
+  # A failed plan (e.g. no access to the state bucket) must not abort the
+  # whole script — skip this combo and move on to the next.
+  if ! (
     cd "${TARGET_STACK_DIR}"
     terraform init -reconfigure "${BACKEND_ARGS[@]}" >/dev/null
     terraform plan -destroy -var-file="${TFVARS}"
-  )
+  ); then
+    echo "⚠️  Destroy plan failed for ${STACK_NAME}/${ENV_NAME}. Skipping it."
+    continue
+  fi
+
+  PROCESSED=$((PROCESSED + 1))
 
   echo ""
   echo "⚠️  This will PERMANENTLY DESTROY real resources for ${STACK_NAME}/${ENV_NAME}."
@@ -72,8 +129,9 @@ for ((i=${#COMBOS[@]}-1; i>=0; i--)); do
     cd "${TARGET_STACK_DIR}"
     terraform destroy -var-file="${TFVARS}"
   )
+  DESTROYED=$((DESTROYED + 1))
   echo "✅ Destroyed ${STACK_NAME}/${ENV_NAME}"
 done
 
 echo "-----------------------------------------------------"
-echo "✅ Done processing all destroy candidates."
+echo "✅ Done. Plans reviewed: ${PROCESSED}, destroyed: ${DESTROYED}."

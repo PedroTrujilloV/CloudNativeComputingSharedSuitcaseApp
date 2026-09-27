@@ -73,6 +73,13 @@ variable "card_worker_repository_name" {
   nullable    = false
 }
 
+variable "user_verification_callback_repository_name" {
+  description = "Name of the user_verification_callback_repository (Entrega 3, RF-007; container image)"
+  type        = string
+  nullable    = false
+}
+
+
 
 variable "db_username" {
   description = "Unused in this stack; declared only because the course evaluation workflow always passes it via -var."
