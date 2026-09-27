@@ -16,9 +16,11 @@
 ├── card_worker/                   # Card verification worker (Entrega 3, RF-006): AWS Lambda function that polls TrueNative until the card reaches a terminal state
 ├── user_verification_callback/    # User verification callback (Entrega 3, RF-007): receives the TrueNative identity verification callback and updates the user status
 ├── k8s/                           # Legacy Entrega 1 Kubernetes manifests
-├── k8s_entrega2/                  # Kubernetes manifests (secrets, apps, ingress, local-only shared DB); in Entrega 3 it gains the manifests for the three new workloads and the updated Ingress
+├── k8s_entrega2/                  # Kubernetes manifests (secrets, apps, ingress, local-only shared DB); in Entrega 3 it gains the RF-007 callback manifest (28-user-verification-callback.yml)
+├── k8s_entrega3/                  # Entrega 3 manifests (TrueNative deployment and the credit cards Deployment + Service, rendered with envsubst at apply time)
 ├── terraform/                     # Terraform stacks and environments for the AWS infrastructure
-│   ├── stacks/                    # One folder per stack: 0_storage, 1_database, 2_registry, 3_dynamodb, 4_sns, 5_sqs, 6_lambda, eks
+│   ├── stacks/                    # One folder per stack: 0_storage, 1_database, 2_registry, 3_dynamodb, eks, 4_sns, 5_sqs, 6_lambda
+│   ├── modules/                   # Shared modules used by the stacks (rds, eks, repository, secrets_manager, storage)
 │   └── environments/              # One folder per environment (dev, student1), each holding the tfvars of every stack
 ├── scripts/                       # Local deploy/verify scripts, Postman collections, Terraform helper scripts
 ├── plantuml-generator/            # Docker image that renders the PlantUML diagrams
@@ -516,7 +518,7 @@ minikube image ls | grep -E "users|posts|routes|offers|scores|rf003|rf004|rf005"
 
 ## Step 8: Deploy the Kubernetes Manifests
 
-Apply the declarative manifests located in `k8s_entrega2/` (Deployments, Services, Secrets, and Ingress) in the same order `scripts/local-deploy.sh` uses: the local secrets and the shared Postgres instance first (both in `k8s_entrega2/local-only/`), then the application Deployments and Services (the eight of the previous deliveries plus the new workloads of Entrega 3), and the Ingress last:
+Apply the declarative manifests located in `k8s_entrega2/` (Deployments, Services, Secrets, and Ingress) in the same order `scripts/local-deploy.sh` uses: the local secrets and the shared Postgres instance first (both in `k8s_entrega2/local-only/`), then the application Deployments and Services (the eight of the previous deliveries, plus the RF-007 callback receiver and the RF-006 credit cards service of Entrega 3), the TrueNative deployment of `k8s_entrega3/`, and the Ingress last:
 
 ```bash
 kubectl apply -f k8s_entrega2/local-only/00-secrets.yml
@@ -529,6 +531,9 @@ kubectl apply -f k8s_entrega2/24-scores-app.yml
 kubectl apply -f k8s_entrega2/25-rf003-create-post-app.yml
 kubectl apply -f k8s_entrega2/26-rf004-create-offer-app.yml
 kubectl apply -f k8s_entrega2/27-rf005-query-post-app.yml
+kubectl apply -f k8s_entrega2/28-user-verification-callback.yml
+kubectl apply -f k8s_entrega3/k8s-true-native-deployment.yml
+kubectl apply -f k8s_entrega3/k8s-credit-cards-deployment.yml
 kubectl apply -f k8s_entrega2/zz-ingress.yml
 ```
 
@@ -536,25 +541,24 @@ kubectl apply -f k8s_entrega2/zz-ingress.yml
 >
 > **Note:** TrueNative is not built locally: it uses the provided image. `scripts/local-deploy.sh` reads the `SECRET_TOKEN` value from `truenative_secrets/dev.env`, a file that lives OUTSIDE the repository, one level above the repo root (that is, `<parent-of-repo>/truenative_secrets/dev.env`), and is therefore never committed. A fresh developer creates that folder once and writes a single line in it: `SECRET_TOKEN=<any random string>`. The script then substitutes the value into the `truenative-secret` Kubernetes Secret and applies `k8s_entrega3/k8s-true-native-deployment.yml` before the Ingress. The manifest declares only the mandatory `SECRET_TOKEN`; the optional testing variables (`SUCCESS_RATE`, `MAX_WEBHOOK_DELAY`, and `MAX_POLL_DELAY`) keep their platform defaults in the cluster, and the evaluation collection reconfigures them at runtime through `POST /native/env`, so no dev override is needed in the manifest.
 
-The new workloads of Entrega 3 are added to `k8s_entrega2/` with the same
-numbered naming convention (for example `28-credit-cards-app.yml` and
-`29-user-verification-callback.yml`), so they are applied in order by the
-pipeline. The TrueNative deployment lives in
-`k8s_entrega3/k8s-true-native-deployment.yml`: it is the only manifest of the
-`k8s_entrega3` folder, and it is applied by `scripts/local-deploy.sh` after
-the `k8s_entrega2/` workloads and before the Ingress, with the `SECRET_TOKEN`
-value substituted from the out of repo `truenative_secrets/dev.env` file
-(see the note below).
+The RF-007 callback receiver is added to `k8s_entrega2/` with the same
+numbered naming convention (`28-user-verification-callback.yml`), so it is
+applied in order by the pipeline. The RF-006 credit cards Deployment and
+Service live in `k8s_entrega3/k8s-credit-cards-deployment.yml` (the DynamoDB
+table name and the SQS queue URL come from the Terraform outputs, and the
+local run uses placeholder values), and the TrueNative deployment lives in
+`k8s_entrega3/k8s-true-native-deployment.yml`. Both are applied by
+`scripts/local-deploy.sh` after the `k8s_entrega2/` workloads and before the
+Ingress, with the `SECRET_TOKEN` value substituted from the out of repo
+`truenative_secrets/dev.env` file (see the note above).
 
 ## Step 9: Verify the Deployment
 
-Confirm that all nine workloads (5 applications + 3 orchestrators + shared-db) are running correctly in the `default` namespace:
-Confirm that all nine workloads (5 applications + 3 orchestrators + shared-db) are running correctly in the `default` namespace:
+Confirm that all twelve workloads (5 applications + 3 orchestrators + shared-db + the three workloads of Entrega 3: credit-cards-app, user-verification-callback, and truenative) are running correctly in the `default` namespace:
 
 ```bash
 kubectl get pods
 kubectl get services
-kubectl get ingress
 kubectl get ingress
 ```
 
@@ -565,7 +569,6 @@ kubectl logs <pod-name>
 kubectl describe pod <pod-name>
 ```
 
-## Step 10: Access the Applications via Ingress
 ## Step 10: Access the Applications via Ingress
 
 All applications are reachable through a single Ingress resource that routes by path prefix. Start `minikube tunnel` in a separate terminal (this is the same procedure `scripts/local-verify.sh` uses): with the tunnel running, the Ingress is reachable at `http://localhost:80`:
@@ -579,6 +582,7 @@ Example health checks:
 curl http://localhost:80/users/ping
 curl http://localhost:80/posts/ping
 curl http://localhost:80/rf003/ping
+curl http://localhost:80/credit-cards/ping
 curl http://localhost:80/native/ping
 # Each should respond: pong
 ```
@@ -587,7 +591,13 @@ curl http://localhost:80/native/ping
 
 Import the corresponding Postman collections for each application and update the `baseUrl` environment variable (**Current value**, not Initial value) with the URL obtained in the previous step. Run each collection (`Run collection`) and confirm that all tests pass successfully.
 
-## Step 12: Run the Validation Pipelines
+For Entrega 3, use the graded collection `scripts/entrega3/entrega3.json`
+(its folders are "Reset," "RF-007 Verificar identidad," and "RF-006 Tarjetas,"
+and it declares the environment variables `BASE_PATH` and `EMAIL`). The
+script `scripts/test-entrega3.sh` runs the same collection against the AWS
+deployment (it reads `scripts/.env`, connects to the cluster with the
+active AWS session, and resolves the ingress host automatically).
+
 ## Step 12: Run the Validation Pipelines
 
 Before creating the release, manually run the provided pipelines (without modifying them) from the **Actions** tab of the repository on GitHub. For Entrega 1:
@@ -601,8 +611,9 @@ For Entrega 2 (cloud deployment via Terraform stacks and ECR images):
 
 For Entrega 3, run the full sequence documented in the
 [Cloud Deployment Procedure (Entrega 3)](#cloud-deployment-procedure-entrega-3):
-the deploy pipeline, the manual SNS confirmation step, the evaluator pipeline
-(`ci_evaluador_entrega3.yml`), and the destroy pipeline, in that order.
+the deploy pipeline, the manual SNS confirmation step, the evaluator workflow
+(`ci_entrega3_evaluador.yml`, which calls the course reusable workflow
+`ci_evaluador_entrega3.yml`), and the destroy pipeline, in that order.
 
 Confirm that they finish successfully (passed ✅) before continuing.
 
@@ -617,14 +628,12 @@ published Pages site) before releasing.
 Additionally, confirm that the unit testing pipeline (`ci_evaluador_unit.yml`) passes correctly on every push/PR to `main`, with a minimum coverage of 70% per application.
 
 ## Step 13: Cleanup (Optional)
-## Step 13: Cleanup (Optional)
 
 To remove the deployment and stop Minikube after testing:
 
 ```bash
 kubectl delete -f k8s_entrega2/
-kubectl delete -f k8s_entrega2/local-only/15-shared-db.yml  # local minikube only
-kubectl delete -f k8s_entrega2/
+kubectl delete -f k8s_entrega3/
 kubectl delete -f k8s_entrega2/local-only/15-shared-db.yml  # local minikube only
 minikube stop
 # To completely remove the cluster:
@@ -649,5 +658,6 @@ Step 5), not the `kubectl` commands above.
 | An application can access another application's database | Network Policy is incorrectly configured or was not applied (legacy `k8s/` deployment) | Run `kubectl get networkpolicies` and compare against `networks.puml`                                                 |
 | No email arrives after a verification process             | The SNS subscription is not confirmed, or the `EMAIL_TO_NOTIFY` secret is missing in the environment                                   | Confirm the subscription (see the Cloud Deployment Procedure, Step 3) and verify that the deploy pipeline populated `secrets-pipeline-native-map` |
 | A local plan of `4_sns` reports the pipeline secret missing | The `secrets-pipeline-native-map` secret only exists after a deploy pipeline run, so a local plan on a fresh account finds no secret | Expected on a fresh account: create the secret once beforehand with the AWS CLI so the local plan can read it (see the `4_sns` stack README); the deploy pipeline overwrites the secret on every run |
+| Cards stay `POR_VERIFICAR` and the worker logs "TrueNative could not be reached" | An orphaned classic load balancer from a previous lab session still carries the ingress-nginx tags, and the card worker discovery picks it instead of the live balancer (or the live balancer has no registered instance yet) | List the classic load balancers with `aws elb describe-load-balancers`, check each one with `aws elb describe-instance-health`, and delete the orphaned balancer that registers no instance (`aws elb delete-load-balancer --load-balancer-name <name>`); on a fresh cluster, wait for the node to be registered and the health check to pass before rerunning the flow |
 
 ````
