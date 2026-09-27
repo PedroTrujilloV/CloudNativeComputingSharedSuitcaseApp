@@ -12,10 +12,11 @@ INGRESS_TAG = {
 
 
 class FakeElbClient:
-    """In-memory ELBv1 client with the two operations the discovery uses.
+    """In-memory ELBv1 client with the operations the discovery uses.
 
     A balancer without tags produces no ``TagDescriptions`` entry, as the
-    real ELBv1 API does.
+    real ELBv1 API does. Instance health defaults to no registered
+    instance (the case of an orphaned balancer).
     """
 
     def __init__(self, load_balancers: list[dict]):
@@ -31,6 +32,11 @@ class FakeElbClient:
                 for lb in self._load_balancers
             ]
         }
+
+    def describe_instance_health(self, LoadBalancerName: str) -> dict:  # noqa: N803
+        by_name = {lb["name"]: lb for lb in self._load_balancers}
+        instances = by_name[LoadBalancerName].get("instances", [])
+        return {"InstanceStates": instances}
 
     def describe_tags(self, LoadBalancerNames: list[str]) -> dict:  # noqa: N803
         by_name = {lb["name"]: lb for lb in self._load_balancers}
@@ -68,12 +74,84 @@ def test_finds_the_ingress_balancer_among_others():
             "name": "elb-0f1e2d3c4b",
             "dns": "elb-0f1e2d3c4b.us-east-1.elb.amazonaws.com",
             "tags": dict(INGRESS_TAG),
+            "instances": [{"State": "InService"}],
         },
     ]
     url = ingress_discovery.discover_truenative_base_url(
         client_factory=factory(load_balancers)
     )
     assert url == "https://elb-0f1e2d3c4b.us-east-1.elb.amazonaws.com"
+
+
+def test_skips_the_orphaned_balancer_of_a_previous_session():
+    # Reproduction of the lab incident: the cluster is re-provisioned and
+    # the balancer of the previous session keeps the same cluster name and
+    # service tags. The ELBv1 API answers in lexicographic name order, so
+    # the orphaned one ("a9..." before "af...") comes first and must not
+    # be selected: it registers no instance.
+    load_balancers = [
+        {
+            "name": "a989a56f7d4034e03a5a22b2cd48ea8a",
+            "dns": "a989a56f7d4034e03a5a22b2cd48ea8a-679984815.us-east-1.elb.amazonaws.com",
+            "tags": dict(INGRESS_TAG),
+            "instances": [],
+        },
+        {
+            "name": "af8012a62ddd14bab966c0bca737a727",
+            "dns": "af8012a62ddd14bab966c0bca737a727-942313004.us-east-1.elb.amazonaws.com",
+            "tags": dict(INGRESS_TAG),
+            "instances": [{"State": "InService"}],
+        },
+    ]
+    url = ingress_discovery.discover_truenative_base_url(
+        client_factory=factory(load_balancers)
+    )
+    assert url == "https://af8012a62ddd14bab966c0bca737a727-942313004.us-east-1.elb.amazonaws.com"
+
+
+def test_raises_when_the_tagged_balancers_register_no_instance():
+    load_balancers = [
+        {
+            "name": "a989a56f7d4034e03a5a22b2cd48ea8a",
+            "dns": "a989a56f7d4034e03a5a22b2cd48ea8a-679984815.us-east-1.elb.amazonaws.com",
+            "tags": dict(INGRESS_TAG),
+            "instances": [],
+        },
+    ]
+    with pytest.raises(TrueNativePollingError):
+        ingress_discovery.discover_truenative_base_url(
+            client_factory=factory(load_balancers)
+        )
+
+
+def test_prefers_in_service_but_accepts_registered_instances():
+    # A balancer whose instances have not passed the health check yet
+    # (cluster coming up) is usable better than a hard failure; an
+    # InService balancer still wins over it.
+    out_of_service = {
+        "name": "elb-b",
+        "dns": "b.example.com",
+        "tags": dict(INGRESS_TAG),
+        "instances": [{"State": "OutOfService"}],
+    }
+    in_service = {
+        "name": "elb-a",
+        "dns": "a.example.com",
+        "tags": dict(INGRESS_TAG),
+        "instances": [{"State": "InService"}],
+    }
+    assert (
+        ingress_discovery.discover_truenative_base_url(
+            client_factory=factory([out_of_service, in_service])
+        )
+        == "https://a.example.com"
+    )
+    assert (
+        ingress_discovery.discover_truenative_base_url(
+            client_factory=factory([out_of_service])
+        )
+        == "https://b.example.com"
+    )
 
 
 def test_raises_when_there_is_no_load_balancer():

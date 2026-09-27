@@ -26,9 +26,18 @@ INGRESS_SERVICE_NAME = "ingress-nginx/ingress-nginx-controller"
 def discover_truenative_base_url(
     region: str | None = None, client_factory=None
 ) -> str:
-    """Return the https base URL of the ingress load balancer.
+    """Return the https base URL of the live ingress load balancer.
 
-    Raises ``TrueNativePollingError`` when the balancer cannot be found,
+    The lab account re-provisions the cluster between sessions, and the
+    load balancers of previous sessions keep the same cluster name and
+    service tags: the tag alone does not identify the balancer that
+    actually fronts the current cluster, because an orphaned balancer
+    carries no registered instance. The tagged candidates are therefore
+    checked with ``describe_instance_health`` and the balancer with an
+    InService instance is preferred; a balancer whose instances have not
+    passed the health check yet is accepted as a fallback.
+
+    Raises ``TrueNativePollingError`` when no usable balancer is found,
     so the failure is treated like any other polling failure: the
     invocation fails and the queue redelivers the event (the discovery is
     transient during a deployment, persistent on a misconfiguration).
@@ -54,14 +63,39 @@ def discover_truenative_base_url(
         for chunk in client.describe_tags(LoadBalancerNames=names)["TagDescriptions"]
     }
 
-    for description in descriptions:
-        tags = tags_by_name.get(description["LoadBalancerName"], {})
-        if tags.get(KUBERNETES_SERVICE_NAME_TAG) == INGRESS_SERVICE_NAME:
+    candidates = [
+        description
+        for description in descriptions
+        if tags_by_name.get(description["LoadBalancerName"], {}).get(
+            KUBERNETES_SERVICE_NAME_TAG
+        )
+        == INGRESS_SERVICE_NAME
+    ]
+    if not candidates:
+        raise TrueNativePollingError(
+            "No classic load balancer is tagged as the ingress-nginx service "
+            f"({INGRESS_SERVICE_NAME})"
+        )
+
+    fallback = None
+    for description in candidates:
+        states = client.describe_instance_health(
+            LoadBalancerName=description["LoadBalancerName"]
+        ).get("InstanceStates", [])
+        if any(state.get("State") == "InService" for state in states):
             return f"https://{description['DNSName']}"
+        if states and fallback is None:
+            fallback = description
+
+    if fallback is not None:
+        # Registered instances that have not passed the health check yet:
+        # better than failing while the cluster comes up.
+        return f"https://{fallback['DNSName']}"
 
     raise TrueNativePollingError(
-        "No classic load balancer is tagged as the ingress-nginx service "
-        f"({INGRESS_SERVICE_NAME})"
+        "The load balancers tagged as the ingress-nginx service have no "
+        "registered instance (an orphaned balancer of a previous cluster "
+        "session, or the cluster is still provisioning)"
     )
 
 
