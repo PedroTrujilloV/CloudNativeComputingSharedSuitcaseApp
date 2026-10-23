@@ -660,4 +660,15 @@ Step 5), not the `kubectl` commands above.
 | A local plan of `4_sns` reports the pipeline secret missing | The `secrets-pipeline-native-map` secret only exists after a deploy pipeline run, so a local plan on a fresh account finds no secret | Expected on a fresh account: create the secret once beforehand with the AWS CLI so the local plan can read it (see the `4_sns` stack README); the deploy pipeline overwrites the secret on every run |
 | Cards stay `POR_VERIFICAR` and the worker logs "TrueNative could not be reached" | An orphaned classic load balancer from a previous lab session still carries the ingress-nginx tags, and the card worker discovery picks it instead of the live balancer (or the live balancer has no registered instance yet) | List the classic load balancers with `aws elb describe-load-balancers`, check each one with `aws elb describe-instance-health`, and delete the orphaned balancer that registers no instance (`aws elb delete-load-balancer --load-balancer-name <name>`); on a fresh cluster, wait for the node to be registered and the health check to pass before rerunning the flow |
 
-````
+
+## Demo Third Iteration:
+
+
+
+https://github.com/user-attachments/assets/f9c6d26d-f27c-4a24-8ecc-b627cc3f6197
+
+
+
+
+
+
