@@ -9,15 +9,15 @@
 set -euo pipefail
 
 
-BUCKET="${1:-terraform-dann-pe-trujillo}"
+BUCKET="${1:-<TERRAFORM_STATE_BUCKET>}"
   echo ""
   read -r -p "❓ Is this a dev (development environment) bucket for? [y/N] " CONFIRM
   if [[ "${CONFIRM}" =~ ^[Yy]$ ]]; then
-    echo "▶️  Creating bucket for development(dev: terraform-dann-pe-trujillo-dev)"
-    BUCKET="${1:-terraform-dann-pe-trujillo-dev}"
+    echo "▶️  Creating bucket for development(dev: <TERRAFORM_STATE_BUCKET>)"
+    BUCKET="${1:-<TERRAFORM_STATE_BUCKET>}"
   else
-    echo "⏭️  Creating bucket for production (student1: terraform-dann-pe-trujillo)"
-    BUCKET="${1:-terraform-dann-pe-trujillo-prod}"
+    echo "⏭️  Creating bucket for production (student1: <TERRAFORM_STATE_BUCKET>)"
+    BUCKET="${1:-<TERRAFORM_STATE_BUCKET>}"
   fi
 
 REGION="${2:-us-east-1}"

@@ -35,13 +35,13 @@ variable "sg_ingress_cidr_blocks" {
 variable "override_vpc_id" {
   description = "ID of the VPC where the RDS instance is placed. When null, the account's default VPC is discovered via the EC2 API (requires ec2:DescribeVpcs, denied in the current lab account)."
   type        = string
-  default     = null #"vpc-02b0985fc383db11c" # Default VPC of the AWS Academy lab account
+  default     = null #"<VPC_ID>" # Default VPC of the AWS Academy lab account
 }
 
 variable "override_subnet_ids" {
   description = "Subnet IDs for the RDS subnet group. When null, the subnets of the default VPC are discovered via the EC2 API (requires ec2:DescribeSubnets, denied in the current lab account)."
   type        = list(string)
-  default     = null # ["subnet-0c27d8a954dd50f43", "subnet-0ce438797e31861ee", "subnet-0fb22cd1b4ffa666d", "subnet-0db3ba6dcd580a4f8"]
+  default     = null # ["<SUBNET_ID>", "<SUBNET_ID>", "<SUBNET_ID>", "<SUBNET_ID>"]
 }
 
 variable "create_app_tables" {

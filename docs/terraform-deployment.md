@@ -280,7 +280,7 @@ terraform/environments/<environment>/6_lambda/backend.tfvars
 Example for the `1_database` stack:
 
 ```hcl
-bucket = "terraform-dann-pe-trujillo-prod"
+bucket = "<TERRAFORM_STATE_BUCKET>"
 key    = "database/terraform.tfstate"
 region = "us-east-1"
 ```

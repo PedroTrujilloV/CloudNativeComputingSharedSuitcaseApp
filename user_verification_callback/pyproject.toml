@@ -3,7 +3,7 @@ name = "user_verification_callback"
 version = "0.0.0"
 description = "Public callback receiver for the TrueNative identity verification result (RF-007)."
 authors = [
-  "Agustin Serrano <a.serranor@uniandes.edu.co>"
+  "Student 1 <student1@uniandes.edu.co>"
 ]
 license = "MIT"
 readme = "README.md"

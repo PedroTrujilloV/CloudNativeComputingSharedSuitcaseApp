@@ -645,4 +645,4 @@ npx newman run tests/api/offers.postman_collection.json
 
 ## Author
 
-- Camilo Daza — `ca.dazab1@uniandes.edu.co`
+- Student 2 — `student2@uniandes.edu.co`

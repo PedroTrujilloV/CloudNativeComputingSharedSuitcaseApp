@@ -2,7 +2,7 @@
 name = "offers-app"
 version = "0.1.0"
 description = "Manage offers related to an existing post for Shared Suitcase delivery platform"
-authors = ["Camilo Daza <cadazab@gmail.com>"]
+authors = ["Student 2 <student2@uniandes.edu.co>"]
 license = "MIT"
 readme = "README.md"
 package-mode = false

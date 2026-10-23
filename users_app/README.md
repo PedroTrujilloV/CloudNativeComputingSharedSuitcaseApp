@@ -455,4 +455,4 @@ environment-based configuration.
 ## Authors
 
 - Pedro Trujillo - `pe.trujillo@uniandes.edu.co` Entrega 2 and 3
-- Agustin Serrano — `a.serranor@uniandes.edu.co` Entrega 1
+- Student 1 — `student1@uniandes.edu.co` Entrega 1

@@ -3,7 +3,7 @@ name = "users_app"
 version = "0.0.0"
 description = "Users microservice for the Shared Suitcase delivery platform."
 authors = [
-  "Agustin Serrano <a.serranor@uniandes.edu.co>"
+  "Student 1 <student1@uniandes.edu.co>"
 ]
 license = "MIT"
 readme = "README.md"

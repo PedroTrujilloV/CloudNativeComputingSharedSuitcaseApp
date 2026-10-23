@@ -256,4 +256,4 @@ Current result: 51 passed, 97% coverage.
 
 ## Author
 
-- Juan Roncancio — `j.roncancioc@uniandes.edu.co`
+- Student 3 — `student3@uniandes.edu.co`

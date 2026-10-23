@@ -1,5 +1,5 @@
 aws_region  = "us-east-1"
 environment = "student1"
-bucket_name = "terraform-dann-pe-trujillo-prod"
+bucket_name = "<TERRAFORM_STATE_BUCKET>"
 owner       = "pe.trujillo"
 implementation = "../../modules/storage"

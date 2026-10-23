@@ -3,7 +3,7 @@ name = "posts-app"
 version = "0.0.1"
 description = "Posts Service - Publicaciones/Posts microservice for collaborative logistics platform"
 authors = [
-    "Juan David Roncancio Camacho <j.roncancioc@uniandes.edu.co>"
+    "Student 3 <student3@uniandes.edu.co>"
     ]
 package-mode = false
 

@@ -1,4 +1,4 @@
-bucket         = "terraform-dann-pe-trujillo-prod"
+bucket         = "<TERRAFORM_STATE_BUCKET>"
 key            = "storage/terraform.tfstate"
 region         = "us-east-1"
 use_lockfile   = true
